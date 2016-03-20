@@ -23,8 +23,9 @@ import re
 def main():
     text = pdftotext(sys.argv[1])
     textpages = text.split("\x0c")
+    # remove last page, which is emptyHW
     pages = [HBWSPage(pagetext) for pagetext in textpages[:-1]]
-    [page.debug_print() for page in pages]
+    [print(page.debug_str()) for page in pages]
 
 
 
@@ -32,7 +33,8 @@ class HBWSPage:
     """Hawaii Budget Worksheet Page"""
     def __init__(self, text):
         self.lines = text.split("\n")
-        self.parse()
+        self.parse_header()
+        print(self.debug_str())
 
     def parse_timestamp(self, line):
         # insert leading 0 for hour in time
@@ -47,24 +49,49 @@ class HBWSPage:
         assert len(components) == 2, "pagenum parsing failed to find ' of '"
         return (int(components[0]), int(components[1]))
 
+    def assert_linepos_is(self, line, pos, isstr):
+        assert line[pos] == isstr, "position {} is not '{}' -- line is: '{}' -- Page debug info: {}".format(pos, isstr, "\t".join(line), self.debug_str())
 
-    def parse_line0(self):
-        line0 = re.split(" \s+", self.lines[0])
-        assert line0[3] == "LEGISLATIVE BUDGET SYSTEM", "line0 is not header "+"\t".join(line0)
-        self.datetime = self.parse_timestamp(line0)
-        self.pagenum,self.pages = self.parse_pagenum(line0[-1])
+
+    def parse_line0(self, line):
+        line = re.split(" \s+", line)
+        self.assert_linepos_is(line, 3, "LEGISLATIVE BUDGET SYSTEM")
+        self.datetime = self.parse_timestamp(line)
+        self.pagenum, self.pages = self.parse_pagenum(line[-1])
+
+    def parse_line1(self, line):
+        line = re.split(" \s+", line)
+        self.assert_linepos_is(line, 1, "Detail Type:")
+        self.assert_linepos_is(line, 3, "BUDGET WORKSHEET")
+        self.detail_type = line[2]
+
+
+    def parse_department_or_program_id(self, line):
+        line = re.split(" \s+", line)
+        self.department_summary_page = line[1] == "Department:"
+        self.program_page = line[1] == "Program ID"
+
+        if (self.department_summary_page or self.program_page) and len(line) > 2 and len(line[2]) > 3:
+            self.department_code = line[2][:3]
+
+        if self.program_page:
+            self.program_id = int(line[2][3:])
+            self.program_name = line[3]
 
     def parse_header(self):
-        self.parse_line0()
+        self.parse_line0(self.lines[0])
+        self.parse_line1(self.lines[1])
+        lnum = 2
+        while lnum < len(self.lines) and self.lines[lnum] == "": lnum += 1
+        self.parse_department_or_program_id(self.lines[lnum])
 
-
-    def parse(self):
-        self.parse_header()
-
-    def debug_print(self):
-        print("datetime", self.datetime)
-        print("page num", self.pagenum)
-        print("pages", self.pages)
+    def debug_str(self):
+        props = ["datetime", "pagenum", "pages", "detail_type", "department_code", "program_id", "program_name"]
+        dstrs = []
+        for prop in props:
+            val = getattr(self, prop, None)
+            dstrs.append("{}={}".format(prop, val))
+        return "\n".join(dstrs)
 
 
 def pdftotext(pdf_filename):
