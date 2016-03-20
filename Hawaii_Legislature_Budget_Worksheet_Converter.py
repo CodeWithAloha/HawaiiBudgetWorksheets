@@ -32,9 +32,9 @@ class HBWSPage:
     """Hawaii Budget Worksheet Page"""
     def __init__(self, text):
         # split the page text into single lines
-        lines = text.split("\n")
+        self.text = text.split("\n")
         # split each line into components seperated by two or more spaces
-        self.lines = [re.split(" \s+", line) for line in lines]
+        self.lines = [re.split(" \s+", line) for line in self.text]
         self.curline = 0
         self.parse_page_header()
         self.parse_content_header()
@@ -50,8 +50,7 @@ class HBWSPage:
         self.eat_empty_lines()
 
     def parse_content_header(self):
-        self.parse_department_or_program_id(self.lines[self.curline])
-        self.curline += 1
+        self.parse_department_or_program_id(self.getline())
         self.eat_empty_lines()
 
     def eat_empty_lines(self):
@@ -68,6 +67,36 @@ class HBWSPage:
         self.parse_program_table_header(self.getline())
         self.eat_empty_lines()
 
+
+        seq_len = 24
+        seqline = self.curline
+        special_seq_id = "- 1"
+
+        sequences = { special_seq_id : [] }
+        seq_ids = [special_seq_id]
+
+        while seqline < len(self.text):
+            text = self.text[seqline]
+            seqline += 1
+
+            seq_id = text[:seq_len].strip()
+
+            if len(seq_id):
+                print("Sequence id='{}'".format(seq_id))
+                if seq_id != special_seq_id:
+                    print("Changing sequence id from '{}' to '{}'".format(seq_ids[-1], seq_id))
+                    sequences[seq_id] = []
+                    seq_ids.append(seq_id)
+
+            seq_id = seq_ids[-1]
+            sequences[seq_id].append(text[seq_len:])
+
+        for seq_id in seq_ids:
+            txt = "\n> ".join(['']+sequences[seq_id])
+            print("Sequence: {} text={}".format(seq_id, txt))
+
+
+
     def parse_timestamp(self, line):
         # insert leading 0 for hour in time
         if line[2][1] == ":": line[2] = "0" + line[2]
@@ -82,7 +111,7 @@ class HBWSPage:
         return (int(components[0]), int(components[1]))
 
     def assert_linepos_is(self, line, pos, isstr):
-        assert line[pos] == isstr, "position {} is not '{}', instead is '{}' -- entire line is: '{}' -- Page debug info: {}".format(pos, isstr, line[pos], "\t".join(line), self.debug_str())
+        assert line[pos][:len(isstr)] == isstr, "position {} is not '{}', instead is '{}' -- entire line is: '{}' -- Page debug info: {}".format(pos, isstr, line[pos], "\t".join(line), self.debug_str())
 
 
     def parse_page_header_line0(self, line):
@@ -92,8 +121,8 @@ class HBWSPage:
 
     def parse_page_header_line1(self, line):
         self.assert_linepos_is(line, 1, "Detail Type:")
-        self.assert_linepos_is(line, 3, "BUDGET WORKSHEET")
-        self.detail_type = line[2]
+        self.assert_linepos_is(line, 2, "BUDGET WORKSHEET")
+        self.detail_type = line[1][-1:]
 
     def parse_department_or_program_id(self, line):
         self.department_summary_page = line[1] == "Department:"
@@ -124,6 +153,7 @@ class HBWSPage:
         self.year0 = int(line[3][-4:])
         self.year1 = int(line[4][-4:])
 
+
     def debug_str(self):
         props = ["datetime", "pagenum", "pages", "detail_type", "department_code", "program_id", "program_name", "structure_number", "subject_committee_code", "subject_committee_name", "year0", "year1"]
         dstrs = []
@@ -137,7 +167,7 @@ class HBWSPage:
 def pdftotext(pdf_filename):
     cmd = ["pdftotext",
            "-layout",
-           "-fixed 3",
+           "-fixed 4",
            pdf_filename,
            "-"]
     buf = subprocess.check_output(" ".join(cmd), shell=True)
@@ -147,3 +177,4 @@ def pdftotext(pdf_filename):
 
 if __name__ == "__main__":
     main()
+
