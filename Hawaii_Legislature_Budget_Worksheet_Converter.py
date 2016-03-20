@@ -31,9 +31,41 @@ def main():
 class HBWSPage:
     """Hawaii Budget Worksheet Page"""
     def __init__(self, text):
-        self.lines = text.split("\n")
-        self.parse_header()
+        # split the page text into single lines
+        lines = text.split("\n")
+        # split each line into components seperated by two or more spaces
+        self.lines = [re.split(" \s+", line) for line in lines]
+
+        self.parse_page_header()
+        self.parse_content_header()
+
+        if self.program_page:
+            self.parse_program_page()
+
         print(self.debug_str()+"\n")
+
+    def parse_page_header(self):
+        self.parse_line0(self.lines[0])
+        self.parse_line1(self.lines[1])
+        self.curline = 2
+        self.eat_empty_lines()
+
+    def parse_content_header(self):
+        self.parse_department_or_program_id(self.lines[self.curline])
+        self.curline += 1
+        self.eat_empty_lines()
+
+    def eat_empty_lines(self):
+        while self.curline < len(self.lines) and self.lines[self.curline] == [""]: self.curline += 1
+
+
+    def parse_program_page(self):
+        self.parse_structure_number(self.lines[self.curline])
+        self.curline += 1
+        self.parse_subject_committee(self.lines[self.curline])
+        self.curline += 1
+        self.eat_empty_lines()
+        self.parse_program_table_header(self.lines[self.curline])
 
     def parse_timestamp(self, line):
         # insert leading 0 for hour in time
@@ -53,20 +85,16 @@ class HBWSPage:
 
 
     def parse_line0(self, line):
-        line = re.split(" \s+", line)
         self.assert_linepos_is(line, 3, "LEGISLATIVE BUDGET SYSTEM")
         self.datetime = self.parse_timestamp(line)
         self.pagenum, self.pages = self.parse_pagenum(line[-1])
 
     def parse_line1(self, line):
-        line = re.split(" \s+", line)
         self.assert_linepos_is(line, 1, "Detail Type:")
         self.assert_linepos_is(line, 3, "BUDGET WORKSHEET")
         self.detail_type = line[2]
 
-
     def parse_department_or_program_id(self, line):
-        line = re.split(" \s+", line)
         self.department_summary_page = line[1] == "Department:"
         self.program_page = line[1] == "Program ID"
 
@@ -78,35 +106,26 @@ class HBWSPage:
             self.program_name = line[3]
 
     def parse_structure_number(self, line):
-        line = re.split(" \s+", line)
         self.assert_linepos_is(line, 1, "Structure #:")
         # Keeping as string to preserve leading zeros
         self.structure_number = line[2]
 
     def parse_subject_committee(self, line):
-        line = re.split(" \s+", line)
         assert line[1][:-3] == "Subject Committee: "
         self.subject_committe_code = line[1][-3:]
         self.subject_committe_name = line[2]
 
-
-    def parse_header(self):
-        self.parse_line0(self.lines[0])
-        self.parse_line1(self.lines[1])
-        lnum = 2
-        while lnum < len(self.lines) and self.lines[lnum] == "": lnum += 1
-        self.parse_department_or_program_id(self.lines[lnum])
-        lnum += 1
-        if self.program_page:
-            self.parse_structure_number(self.lines[lnum])
-            lnum += 1
-            self.parse_subject_committee(self.lines[lnum])
-
-
-
+    def parse_program_table_header(self, line):
+        print("line=", line)
+        self.assert_linepos_is(line, 1, "SEQ #")
+        self.assert_linepos_is(line, 2, "EXPLANATION")
+        assert line[3][:-4] == "FY "
+        assert line[4][:-4] == "FY "
+        self.year0 = int(line[3][-4:])
+        self.year1 = int(line[4][-4:])
 
     def debug_str(self):
-        props = ["datetime", "pagenum", "pages", "detail_type", "department_code", "program_id", "program_name", "structure_number", "subject_committee_code", "subject_committee_name"]
+        props = ["datetime", "pagenum", "pages", "detail_type", "department_code", "program_id", "program_name", "structure_number", "subject_committee_code", "subject_committee_name", "year0", "year1"]
         dstrs = []
         for prop in props:
             val = getattr(self, prop, None)
