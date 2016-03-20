@@ -35,7 +35,7 @@ class HBWSPage:
         lines = text.split("\n")
         # split each line into components seperated by two or more spaces
         self.lines = [re.split(" \s+", line) for line in lines]
-
+        self.curline = 0
         self.parse_page_header()
         self.parse_content_header()
 
@@ -45,9 +45,8 @@ class HBWSPage:
         print(self.debug_str()+"\n")
 
     def parse_page_header(self):
-        self.parse_line0(self.lines[0])
-        self.parse_line1(self.lines[1])
-        self.curline = 2
+        self.parse_page_header_line0(self.getline())
+        self.parse_page_header_line1(self.getline())
         self.eat_empty_lines()
 
     def parse_content_header(self):
@@ -58,14 +57,16 @@ class HBWSPage:
     def eat_empty_lines(self):
         while self.curline < len(self.lines) and self.lines[self.curline] == [""]: self.curline += 1
 
+    def getline(self):
+        self.curline += 1
+        return self.lines[self.curline-1]
 
     def parse_program_page(self):
-        self.parse_structure_number(self.lines[self.curline])
-        self.curline += 1
-        self.parse_subject_committee(self.lines[self.curline])
-        self.curline += 1
+        self.parse_structure_number(self.getline())
+        self.parse_subject_committee(self.getline())
         self.eat_empty_lines()
-        self.parse_program_table_header(self.lines[self.curline])
+        self.parse_program_table_header(self.getline())
+        self.eat_empty_lines()
 
     def parse_timestamp(self, line):
         # insert leading 0 for hour in time
@@ -84,12 +85,12 @@ class HBWSPage:
         assert line[pos] == isstr, "position {} is not '{}', instead is '{}' -- entire line is: '{}' -- Page debug info: {}".format(pos, isstr, line[pos], "\t".join(line), self.debug_str())
 
 
-    def parse_line0(self, line):
+    def parse_page_header_line0(self, line):
         self.assert_linepos_is(line, 3, "LEGISLATIVE BUDGET SYSTEM")
         self.datetime = self.parse_timestamp(line)
         self.pagenum, self.pages = self.parse_pagenum(line[-1])
 
-    def parse_line1(self, line):
+    def parse_page_header_line1(self, line):
         self.assert_linepos_is(line, 1, "Detail Type:")
         self.assert_linepos_is(line, 3, "BUDGET WORKSHEET")
         self.detail_type = line[2]
@@ -116,7 +117,6 @@ class HBWSPage:
         self.subject_committe_name = line[2]
 
     def parse_program_table_header(self, line):
-        print("line=", line)
         self.assert_linepos_is(line, 1, "SEQ #")
         self.assert_linepos_is(line, 2, "EXPLANATION")
         assert line[3][:-4] == "FY "
