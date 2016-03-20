@@ -25,7 +25,6 @@ def main():
     textpages = text.split("\x0c")
     # remove last page, which is emptyHW
     pages = [HBWSPage(pagetext) for pagetext in textpages[:-1]]
-    [print(page.debug_str()) for page in pages]
 
 
 
@@ -34,7 +33,7 @@ class HBWSPage:
     def __init__(self, text):
         self.lines = text.split("\n")
         self.parse_header()
-        print(self.debug_str())
+        print(self.debug_str()+"\n")
 
     def parse_timestamp(self, line):
         # insert leading 0 for hour in time
@@ -50,7 +49,7 @@ class HBWSPage:
         return (int(components[0]), int(components[1]))
 
     def assert_linepos_is(self, line, pos, isstr):
-        assert line[pos] == isstr, "position {} is not '{}' -- line is: '{}' -- Page debug info: {}".format(pos, isstr, "\t".join(line), self.debug_str())
+        assert line[pos] == isstr, "position {} is not '{}', instead is '{}' -- entire line is: '{}' -- Page debug info: {}".format(pos, isstr, line[pos], "\t".join(line), self.debug_str())
 
 
     def parse_line0(self, line):
@@ -78,19 +77,41 @@ class HBWSPage:
             self.program_id = int(line[2][3:])
             self.program_name = line[3]
 
+    def parse_structure_number(self, line):
+        line = re.split(" \s+", line)
+        self.assert_linepos_is(line, 1, "Structure #:")
+        # Keeping as string to preserve leading zeros
+        self.structure_number = line[2]
+
+    def parse_subject_committee(self, line):
+        line = re.split(" \s+", line)
+        assert line[1][:-3] == "Subject Committee: "
+        self.subject_committe_code = line[1][-3:]
+        self.subject_committe_name = line[2]
+
+
     def parse_header(self):
         self.parse_line0(self.lines[0])
         self.parse_line1(self.lines[1])
         lnum = 2
         while lnum < len(self.lines) and self.lines[lnum] == "": lnum += 1
         self.parse_department_or_program_id(self.lines[lnum])
+        lnum += 1
+        if self.program_page:
+            self.parse_structure_number(self.lines[lnum])
+            lnum += 1
+            self.parse_subject_committee(self.lines[lnum])
+
+
+
 
     def debug_str(self):
-        props = ["datetime", "pagenum", "pages", "detail_type", "department_code", "program_id", "program_name"]
+        props = ["datetime", "pagenum", "pages", "detail_type", "department_code", "program_id", "program_name", "structure_number", "subject_committee_code", "subject_committee_name"]
         dstrs = []
         for prop in props:
             val = getattr(self, prop, None)
-            dstrs.append("{}={}".format(prop, val))
+            if not val is None:
+                dstrs.append("{}={}".format(prop, val))
         return "\n".join(dstrs)
 
 
