@@ -20,14 +20,14 @@ TEXT_BASE_APPROPRIATIONS = "BASE APPROPRIATIONS"
 TEXT_TOTAL_BUDGET_CHANGES = 'TOTAL BUDGET CHANGES'
 TEXT_BUDGET_TOTALS = 'BUDGET TOTALS'
 
-COL_BEG_FY0_POS = 5
+COL_BEG_FY0_POS = 10
 COL_END_FY0_POS = 16
 COL_BEG_FY0_AMT = 18
 COL_END_FY0_AMT = 32
 COL_BEG_FY0_MOF = 35
 COL_END_FY0_MOF = 35
 
-COL_BEG_FY1_POS = 44
+COL_BEG_FY1_POS = 49
 COL_END_FY1_POS = 55
 COL_BEG_FY1_AMT = 57
 COL_END_FY1_AMT = 71
@@ -92,8 +92,16 @@ class HBWSPage:
         self.eat_empty_lines()
         self.parse_program_table_header(self.getline())
         self.eat_empty_lines()
+        self.parse_sequences()
 
 
+    def parse_sequences(self):
+        (seq_ids, sequences) = self.parse_sequences_step1()
+        self.parse_sequences_step2(seq_ids, sequences)
+
+
+
+    def parse_sequences_step1(self):
         seq_len = COL_END_SEQUENCE_NUM
         seqline = self.curline
 
@@ -122,24 +130,26 @@ class HBWSPage:
             seq_id = seq_ids[-1]
             sequences[seq_id].append(text)
 
+        return (seq_ids, sequences)
 
+    def parse_sequences_step2(self, seq_ids, sequences):
         self.explinations = {}
         self.line_items = {}
-        for seq_id in seq_ids:
-            self.explinations[seq_id], self.line_items[seq_id] = self.parse_seqeuence(sequences[seq_id])
+        self.seq_ids = []
 
         for seq_id in seq_ids:
-            print()
-            print("Sequence ID:", seq_id)
-            print("Explination:\n{}".format("\n".join(self.explinations[seq_id])))
-            print("Line items:", self.line_items[seq_id])
+            ex, li = self.parse_sequence(sequences[seq_id])
+            if len(ex) or len(li):
+                self.explinations[seq_id], self.line_items[seq_id] = (ex, li)
+                self.seq_ids.append(seq_id)
 
 
-    def parse_seqeuence(self, lines):
+
+    def parse_sequence(self, lines):
         explinations = []
         line_items = []
         for line in lines:
-            explination = line[:COL_END_EXPLANATION].strip()
+            explination = line[:COL_END_EXPLANATION].rstrip()
             if explination: explinations.append(explination)
 
             line = line[COL_END_EXPLANATION:]
@@ -231,6 +241,16 @@ class HBWSPage:
             val = getattr(self, prop, None)
             if not val is None:
                 dstrs.append("{}={}".format(prop, val))
+
+        seq_ids = getattr(self, 'seq_ids', [])
+        for seq_id in seq_ids:
+            dstrs.append("")
+            dstrs.append("Sequence ID={}".format(seq_id))
+            dstrs.append("Explination:")
+            dstrs.append("\n".join(self.explinations[seq_id]))
+            dstrs.append("Line Items:")
+            dstrs.append(str(self.line_items[seq_id]))
+
         return "\n".join(dstrs)
 
 
