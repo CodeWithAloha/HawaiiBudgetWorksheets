@@ -15,27 +15,65 @@ __email__ = "mckay@codeforhawaii.org"
 
 PDFTOTEXT_FIXED_PARAM = 4
 COL_END_SEQUENCE_NUM = 24
-COL_END_EXPLANATION = 86
+COL_END_EXPLANATION_PROGRAM = 86
+COL_END_EXPLANATION_DEPT_SUMMARY = 46
 TEXT_BASE_APPROPRIATIONS = "BASE APPROPRIATIONS"
-TEXT_TOTAL_BUDGET_CHANGES = 'TOTAL BUDGET CHANGES'
-TEXT_BUDGET_TOTALS = 'BUDGET TOTALS'
+TEXT_TOTAL_BUDGET_CHANGES = "TOTAL BUDGET CHANGES"
+TEXT_BUDGET_TOTALS = "BUDGET TOTALS"
+TEXT_DEPARTMENT_APPROPRIATIONS = "DEPARTMENT APPROPRIATIONS"
+TEXT_TOTAL_DEPARTMENT_APPROPRIATIONS = "TOTAL DEPARTMENT APPROPRIATIONS"
+TEXT_DEPARTMENT_BUDGET_CHANGES = "DEPARTMENT BUDGET CHANGES"
+TEXT_TOTAL_DEPARTMENT_BUDGET_CHANGES = "TOTAL DEPARTMENT BUDGET CHANGES"
+TEXT_DEPARTMENT_TOTAL_BUDGET = "DEPARTMENT TOTAL BUDGET"
+TEXT_TOTAL_DEPARTMENT_BUDGET = "TOTAL DEPARTMENT BUDGET"
+SPECIAL_EXPLANATIONS = [TEXT_BASE_APPROPRIATIONS, TEXT_TOTAL_BUDGET_CHANGES, TEXT_BUDGET_TOTALS, TEXT_DEPARTMENT_APPROPRIATIONS, TEXT_TOTAL_DEPARTMENT_APPROPRIATIONS, TEXT_DEPARTMENT_BUDGET_CHANGES, TEXT_TOTAL_DEPARTMENT_BUDGET_CHANGES, TEXT_DEPARTMENT_TOTAL_BUDGET, TEXT_TOTAL_DEPARTMENT_BUDGET, "TOTAL APPROPRIATIONS", "GRAND TOTAL APPROPRIATIONS", "TOTAL CHANGES", "GRAND TOTAL CHANGES", "GRAND TOTAL BUDGET"]
 
-COL_BEG_FY0_POS = 10
+
+COL_BEG_FY0_POS = 5
 COL_END_FY0_POS = 16
 COL_BEG_FY0_AMT = 18
-COL_END_FY0_AMT = 32
+COL_END_FY0_AMT = 33
 COL_BEG_FY0_MOF = 35
 COL_END_FY0_MOF = 35
 
-COL_BEG_FY1_POS = 49
+COL_BEG_FY1_POS = 44
 COL_END_FY1_POS = 55
 COL_BEG_FY1_AMT = 57
-COL_END_FY1_AMT = 71
-COL_BEG_FY1_MOF = 74
-COL_END_FY1_MOF = 74
+COL_END_FY1_AMT = 72
+COL_BEG_FY1_MOF = 73
+COL_END_FY1_MOF = 76
 
 
 
+DESC_DEPT = {
+    "Department of Accounting and General Services (DAGS)" : "AGS",
+    "Department of Agriculture (DOA)" : "AGR",
+    "Department of the Attorney General (AG)" : "ATG",
+    "Department of Budget and Finance (B&F)" : "BUF",
+    "Department of Business, Economic Development, and Tourism (DBEDT)" : "BED",
+    "Department of Commerce and Consumer Affairs (DCCA)" : "CCA",
+    "Department of Defense (DOD)" : "DEF",
+    "Department of Education (DOE)" : "EDN",
+    "Office of the Governor" : "GOV",
+    "Department of Hawaiian Home Lands (DHHL)" : "HHL",
+    "Department of Health (DOH)" : "HTH",
+    "Department of Human Resources Development (DHRD) " : "HRD",
+    "Department of Human Services (DHS)" : "HMS",
+    "Department of Labor and Industrial Relations (DLIR)" : "LBR",
+    "Department of Land and Natural Resources (DLNR)" : "LNR",
+    "Office of the Lieutenant Governor (LG)" : "LTG",
+    "Department of Public Safety (DPS) " : "PSD",
+    "Department of Taxation (DOTAX)" : "TAX",
+    "Department of Transportation (DOT)" : "TRN",
+    "University of Hawaii (UH)" : "UOH",
+    "Subsidies" : "SUB",
+    "City and County of Honolulu" : "CCH",
+    "County of Hawaii" : "COH",
+    "County of Kauai" : "COK",
+    "County of Maui" : "COM"
+}
+
+DEPT_DESC = { v: k for k, v in DESC_DEPT.items() }
 
 
 
@@ -85,6 +123,14 @@ class HBWSPage:
 
         if self.program_page:
             self.parse_program_page()
+        else:
+            if self.department_summary_page:
+                line = self.getline()
+                self.assert_linepos_is(line, 1, "EX PLANATION")
+                self.assert_linepos_is(line, 2, "FIRST FY")
+                self.assert_linepos_is(line, 3, "SECOND FY")
+            self.eat_empty_lines()
+            self.parse_sequences(COL_END_EXPLANATION_DEPT_SUMMARY)
 
         #print(self.debug_str()+"\n")
 
@@ -110,19 +156,19 @@ class HBWSPage:
         self.eat_empty_lines()
         self.parse_program_table_header(self.getline())
         self.eat_empty_lines()
-        self.parse_sequences()
+        self.parse_sequences(COL_END_EXPLANATION_PROGRAM)
 
 
-    def parse_sequences(self):
+    def parse_sequences(self, col_end_explanation):
         (seq_ids, sequences) = self.parse_sequences_step1()
-        self.parse_sequences_step2(seq_ids, sequences)
+        self.parse_sequences_step2(seq_ids, sequences, col_end_explanation)
 
 
     def parse_sequences_step1(self):
         seq_len = COL_END_SEQUENCE_NUM
         seqline = self.curline
 
-        special_explanations = [TEXT_BASE_APPROPRIATIONS, TEXT_TOTAL_BUDGET_CHANGES, TEXT_BUDGET_TOTALS]
+        special_explanations = SPECIAL_EXPLANATIONS
 
         seq_ids = [special_explanations[0]]
         sequences = { seq_ids[-1] : [] }
@@ -136,7 +182,7 @@ class HBWSPage:
 
             if not seq_id:
                 for special in special_explanations:
-                    if text.strip().startswith(special):
+                    if text.lstrip().startswith(special):
                         seq_id = special
                         break
 
@@ -149,49 +195,55 @@ class HBWSPage:
 
         return (seq_ids, sequences)
 
-    def parse_sequences_step2(self, seq_ids, sequences):
+    def parse_sequences_step2(self, seq_ids, sequences, col_end_explanation):
         self.explanations = {}
         self.line_items = {}
         self.seq_ids = []
 
         for seq_id in seq_ids:
-            ex, li = self.parse_sequence(sequences[seq_id])
+            ex, li = self.parse_sequence(seq_id, sequences[seq_id], col_end_explanation)
             if len(ex) or len(li):
                 self.explanations[seq_id], self.line_items[seq_id] = (ex, li)
                 self.seq_ids.append(seq_id)
 
 
 
-    def parse_sequence(self, lines):
+    def parse_sequence(self, seq_id, lines, col_end_explanation):
         explanations = []
         line_items = []
         for line in lines:
-            explanation = line[:COL_END_EXPLANATION].rstrip()
+            explanation = line[:col_end_explanation]
+            #print("EXPLANATION FROM:'{}' TO '{}'".format(line, explanation))
+            explanation = explanation.rstrip()
+            if explanation.lstrip().startswith(seq_id): explanation = explanation.lstrip();
             if explanation: explanations.append(explanation)
 
-            line = line[COL_END_EXPLANATION:]
+            line = line[col_end_explanation:]
             line_item = self.parse_line_item(line)
             line_items.append(line_item)
 
-        while len(line_items) and not "".join(line_items[-1]): line_items = line_items[:-1]
+        while len(line_items) > 1 and not "".join(line_items[-1]) and not "".join(line_items[-2]): line_items = line_items[:-1]
 
         return (explanations, line_items)
 
     def parse_line_item(self, line):
-        #print("parse:")
-        #print(line)
-        #print("00000000001111111111222222222233333333334444444444555555555566666666667777777777")
-        #print("0123456789"*8)
-        #print()
-
         fy0_pos = line[COL_BEG_FY0_POS:COL_END_FY0_POS+1]
         fy0_amt = line[COL_BEG_FY0_AMT:COL_END_FY0_AMT+1]
         fy0_mof = line[COL_BEG_FY0_MOF:COL_END_FY0_MOF+1]
         fy1_pos = line[COL_BEG_FY1_POS:COL_END_FY1_POS+1]
         fy1_amt = line[COL_BEG_FY1_AMT:COL_END_FY1_AMT+1]
         fy1_mof = line[COL_BEG_FY1_MOF:COL_END_FY1_MOF+1]
+        result = [txt.strip(' *') for txt in [fy0_pos, fy0_amt, fy0_mof, fy1_pos, fy1_amt, fy1_mof]]
 
-        return [txt.strip() for txt in [fy0_pos, fy0_amt, fy0_mof, fy1_pos, fy1_amt, fy1_mof]]
+        if 0:
+            print("parse:")
+            print(line)
+            print("00000000001111111111222222222233333333334444444444555555555566666666667777777777")
+            print("0123456789"*8)
+            print()
+            print("parsed:",result)
+
+        return result
 
 
     def parse_timestamp(self, line):
@@ -225,8 +277,10 @@ class HBWSPage:
         self.department_summary_page = line[1] == "Department:"
         self.program_page = line[1] == "Program ID"
 
-        if (self.department_summary_page or self.program_page) and len(line) > 2 and len(line[2]) > 3:
+        if ((self.program_page and len(line) > 2 and len(line[2]) > 3) or
+            (self.department_summary_page and len(line) > 2)):
             self.department_code = line[2][:3]
+            self.department = DEPT_DESC[self.department_code]
 
         if self.program_page:
             self.program_id = int(line[2][3:])
@@ -272,7 +326,7 @@ class HBWSPage:
 
 
     def get_spreadsheet_header(self):
-        props = ["datetime", "pagenum", "pages", "detail_type", "department_code", "program_id", "program_name", "structure_number", "subject_committee_code", "subject_committee_name", "sequence_num", "explanation", "pos_y0", "amt_y0", "mof_y0", "pos_y1", "amt_y1", "mof_y1",]
+        props = ["datetime", "pagenum", "pages", "year0", "year1", "detail_type", "department_code", "department", "program_id", "program_name", "structure_number", "subject_committee_code", "subject_committee_name", "sequence_num", "explanation", "pos_y0", "amt_y0", "mof_y0", "pos_y1", "amt_y1", "mof_y1",]
         return props
 
 
@@ -280,7 +334,7 @@ class HBWSPage:
         props = self.get_spreadsheet_header()
         seq_ids = getattr(self, "seq_ids", [])
         rows = []
-        row = [str(getattr(self, prop, None)) for prop in props]
+        row = [str(getattr(self, prop, "")) for prop in props]
         idxof = dict(zip(props, range(len(props))))
         for seq_id in seq_ids:
             row[idxof["sequence_num"]] = seq_id
@@ -292,9 +346,6 @@ class HBWSPage:
                 rows.append(row[:])
 
         return [props] + rows if emit_header else rows
-
-
-
 
 
 
