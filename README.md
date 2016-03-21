@@ -1,4 +1,4 @@
-# Hawaii Budget Worksheet PDF Parser
+# Hawaii Budget Worksheets
 
 This project aims to provide the Hawaii Budget Worksheets as CSV formatted files.
 
