@@ -6,7 +6,7 @@ The [Hawaii State Legislature's "Legislative Information"](http://www.capitol.ha
 
 This project aims to remove that difficulty by converting the worksheets into to a Comma Separated Value (CSV) format file.  The resulting CSV file can be easily parsed by a spreadsheet program such as Microsoft Excel  or Google Sheets.
 
-The `bin/` dir contians the python script used convert a Hawaii State Legislature Budget Worksheet formatted PDF file into a CSV formatted text file.
+The `bin/` dir contians the [python script](bin/Hawaii_Legislature_Budget_Worksheet_Converter.py) used convert a Hawaii State Legislature Budget Worksheet formatted PDF file into a CSV formatted text file.
 
 **Note:** *So far, this has only been tested on the [2016 HB1700 HD1 worksheet](http://www.capitol.hawaii.gov/session2016/worksheets/2016_HB1700_HD1_final.pdf).  It has not been verified to produce correct results.*
 
