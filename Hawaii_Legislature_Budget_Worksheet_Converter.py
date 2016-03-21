@@ -1,41 +1,30 @@
 #!/usr/bin/env python3
 
-"""Hawaii_Legislature_Budget_Worksheet_Converter.py:
-Converts Hawaii State Legislature budget worksheets from PDF format to Tab-Separated-Values (TSV) format for import into a spreadsheet programs.
-"""
 
 __author__ = "McKay H Davis"
 __date__ = "2016-03-20Z20:08"
 __copyright__ = "Copyright 2016"
-__license__ = "GPL"
+__license__ = "GPLv3"
 __version__ = "0.0.1"
 __maintainer__ = "McKay Davis"
 __email__ = "mckay@codeforhawaii.org"
+__doc__ = """
+Hawaii_Legislature_Budget_Worksheet_Converter.py:
+Converts Hawaii State Legislature budget worksheets from PDF format to Tab-Separated-Values (TSV) format for import into a spreadsheet programs.
+"""
 
 
 PDFTOTEXT_FIXED_PARAM = 4
+
 COL_END_SEQUENCE_NUM = 24
 COL_END_EXPLANATION_PROGRAM = 86
 COL_END_EXPLANATION_DEPT_SUMMARY = 46
-TEXT_BASE_APPROPRIATIONS = "BASE APPROPRIATIONS"
-TEXT_TOTAL_BUDGET_CHANGES = "TOTAL BUDGET CHANGES"
-TEXT_BUDGET_TOTALS = "BUDGET TOTALS"
-TEXT_DEPARTMENT_APPROPRIATIONS = "DEPARTMENT APPROPRIATIONS"
-TEXT_TOTAL_DEPARTMENT_APPROPRIATIONS = "TOTAL DEPARTMENT APPROPRIATIONS"
-TEXT_DEPARTMENT_BUDGET_CHANGES = "DEPARTMENT BUDGET CHANGES"
-TEXT_TOTAL_DEPARTMENT_BUDGET_CHANGES = "TOTAL DEPARTMENT BUDGET CHANGES"
-TEXT_DEPARTMENT_TOTAL_BUDGET = "DEPARTMENT TOTAL BUDGET"
-TEXT_TOTAL_DEPARTMENT_BUDGET = "TOTAL DEPARTMENT BUDGET"
-SPECIAL_EXPLANATIONS = [TEXT_BASE_APPROPRIATIONS, TEXT_TOTAL_BUDGET_CHANGES, TEXT_BUDGET_TOTALS, TEXT_DEPARTMENT_APPROPRIATIONS, TEXT_TOTAL_DEPARTMENT_APPROPRIATIONS, TEXT_DEPARTMENT_BUDGET_CHANGES, TEXT_TOTAL_DEPARTMENT_BUDGET_CHANGES, TEXT_DEPARTMENT_TOTAL_BUDGET, TEXT_TOTAL_DEPARTMENT_BUDGET, "TOTAL APPROPRIATIONS", "GRAND TOTAL APPROPRIATIONS", "TOTAL CHANGES", "GRAND TOTAL CHANGES", "GRAND TOTAL BUDGET"]
-
-
 COL_BEG_FY0_POS = 5
 COL_END_FY0_POS = 16
 COL_BEG_FY0_AMT = 18
 COL_END_FY0_AMT = 33
 COL_BEG_FY0_MOF = 35
 COL_END_FY0_MOF = 35
-
 COL_BEG_FY1_POS = 44
 COL_END_FY1_POS = 55
 COL_BEG_FY1_AMT = 57
@@ -43,7 +32,20 @@ COL_END_FY1_AMT = 72
 COL_BEG_FY1_MOF = 73
 COL_END_FY1_MOF = 76
 
-
+SPECIAL_EXPLANATIONS = ["BASE APPROPRIATIONS",
+                        "TOTAL BUDGET CHANGES",
+                        "BUDGET TOTALS",
+                        "DEPARTMENT APPROPRIATIONS",
+                        "TOTAL DEPARTMENT APPROPRIATIONS",
+                        "DEPARTMENT BUDGET CHANGES",
+                        "TOTAL DEPARTMENT BUDGET CHANGES",
+                        "DEPARTMENT TOTAL BUDGET",
+                        "TOTAL DEPARTMENT BUDGET",
+                        "TOTAL APPROPRIATIONS",
+                        "GRAND TOTAL APPROPRIATIONS",
+                        "TOTAL CHANGES",
+                        "GRAND TOTAL CHANGES",
+                        "GRAND TOTAL BUDGET"]
 
 DESC_DEPT = {
     "Department of Accounting and General Services (DAGS)" : "AGS",
@@ -76,6 +78,27 @@ DESC_DEPT = {
 DEPT_DESC = { v: k for k, v in DESC_DEPT.items() }
 
 
+MOF = {
+    "A" : "general funds",
+    "B" : "special funds",
+    "C" : "general obligation bond fund",
+    "D" : "general obligation bond fund with debt service cost to be paid from special funds",
+    "E" : "revenue bond funds",
+    "J" : "federal aid interstate funds",
+    "K" : "federal aid primary funds",
+    "L" : "federal aid secondary funds",
+    "M" : "federal aid urban funds",
+    "N" : "federal funds",
+    "P" : "other federal funds",
+    "R" : "private contributions",
+    "S" : "county funds",
+    "T" : "trust funds",
+    "U" : "interdepartmental transfers",
+    "W" : "revolving funds",
+    "X" : "other funds"
+}
+
+
 
 import subprocess
 import sys
@@ -85,27 +108,30 @@ import re
 
 
 def main():
-    text = pdftotext(sys.argv[1])
+    print(pdf_to_csv(sys.argv[1]))
+
+
+def pdf_to_csv(pdf_filename):
+    text = pdftotext(pdf_filename)
+    # split pages at pagebreak char
     textpages = text.split("\x0c")
-    # remove last page, which is emptyHW
-    pages = [HBWSPage(pagetext) for pagetext in textpages[:-1]]
-    #for page in pages:
-    #    print(page.debug_str())
-    text = get_spreadsheet(pages);
-    print(text)
+    # remove last page, which is empty
+    textpages = textpages[:-1]
+    # create a HBWSPage instance for each page
+    pages = [HBWSPage(pagetext) for pagetext in textpages]
 
-
+    # [print page.debug_str() for page in pages]
+    return get_spreadsheet(pages, ",")
 
 def get_spreadsheet(pages, delimiter="\t"):
     text = []
-    DELIMITER = "\t"
     header = True
     for page in pages:
         for row in page.get_spreadsheet_rows(header):
             header = False
             row = ["" if ent is None else ent for ent in row]
             row = ['"{}"'.format(ent) for ent in row]
-            text.append(DELIMITER.join(row))
+            text.append(delimiter.join(row))
     return "\n".join(text)
 
 
@@ -235,7 +261,7 @@ class HBWSPage:
         fy1_pos = line[COL_BEG_FY1_POS:COL_END_FY1_POS+1]
         fy1_amt = line[COL_BEG_FY1_AMT:COL_END_FY1_AMT+1]
         fy1_mof = line[COL_BEG_FY1_MOF:COL_END_FY1_MOF+1]
-        result = [txt.strip(' *') for txt in [fy0_pos, fy0_amt, fy0_mof, fy1_pos, fy1_amt, fy1_mof]]
+        result = [txt.strip(" *") for txt in [fy0_pos, fy0_amt, fy0_mof, fy1_pos, fy1_amt, fy1_mof]]
 
         if 0:
             print("parse:")
