@@ -51,6 +51,24 @@ def main():
     textpages = text.split("\x0c")
     # remove last page, which is emptyHW
     pages = [HBWSPage(pagetext) for pagetext in textpages[:-1]]
+    #for page in pages:
+    #    print(page.debug_str())
+    text = get_spreadsheet(pages);
+    print(text)
+
+
+
+def get_spreadsheet(pages, delimiter="\t"):
+    text = []
+    DELIMITER = "\t"
+    header = True
+    for page in pages:
+        for row in page.get_spreadsheet_rows(header):
+            header = False
+            row = ['""' if ent is None else ent for ent in row]
+            text.append(DELIMITER.join(row))
+    return "\n".join(text)
+
 
 
 
@@ -68,7 +86,7 @@ class HBWSPage:
         if self.program_page:
             self.parse_program_page()
 
-        print(self.debug_str()+"\n")
+        #print(self.debug_str()+"\n")
 
     def parse_page_header(self):
         self.parse_page_header_line0(self.getline())
@@ -98,7 +116,6 @@ class HBWSPage:
     def parse_sequences(self):
         (seq_ids, sequences) = self.parse_sequences_step1()
         self.parse_sequences_step2(seq_ids, sequences)
-
 
 
     def parse_sequences_step1(self):
@@ -133,32 +150,32 @@ class HBWSPage:
         return (seq_ids, sequences)
 
     def parse_sequences_step2(self, seq_ids, sequences):
-        self.explinations = {}
+        self.explanations = {}
         self.line_items = {}
         self.seq_ids = []
 
         for seq_id in seq_ids:
             ex, li = self.parse_sequence(sequences[seq_id])
             if len(ex) or len(li):
-                self.explinations[seq_id], self.line_items[seq_id] = (ex, li)
+                self.explanations[seq_id], self.line_items[seq_id] = (ex, li)
                 self.seq_ids.append(seq_id)
 
 
 
     def parse_sequence(self, lines):
-        explinations = []
+        explanations = []
         line_items = []
         for line in lines:
-            explination = line[:COL_END_EXPLANATION].rstrip()
-            if explination: explinations.append(explination)
+            explanation = line[:COL_END_EXPLANATION].rstrip()
+            if explanation: explanations.append(explanation)
 
             line = line[COL_END_EXPLANATION:]
             line_item = self.parse_line_item(line)
             line_items.append(line_item)
 
-        while len(line_items) and not ''.join(line_items[-1]): line_items = line_items[:-1]
+        while len(line_items) and not "".join(line_items[-1]): line_items = line_items[:-1]
 
-        return (explinations, line_items)
+        return (explanations, line_items)
 
     def parse_line_item(self, line):
         #print("parse:")
@@ -222,8 +239,8 @@ class HBWSPage:
 
     def parse_subject_committee(self, line):
         assert line[1][:-3] == "Subject Committee: "
-        self.subject_committe_code = line[1][-3:]
-        self.subject_committe_name = line[2]
+        self.subject_committee_code = line[1][-3:]
+        self.subject_committee_name = line[2]
 
     def parse_program_table_header(self, line):
         self.assert_linepos_is(line, 1, "SEQ #")
@@ -242,16 +259,43 @@ class HBWSPage:
             if not val is None:
                 dstrs.append("{}={}".format(prop, val))
 
-        seq_ids = getattr(self, 'seq_ids', [])
+        seq_ids = getattr(self, "seq_ids", [])
         for seq_id in seq_ids:
             dstrs.append("")
             dstrs.append("Sequence ID={}".format(seq_id))
-            dstrs.append("Explination:")
-            dstrs.append("\n".join(self.explinations[seq_id]))
+            dstrs.append("Explanation:")
+            dstrs.append("\n".join(self.explanations[seq_id]))
             dstrs.append("Line Items:")
             dstrs.append(str(self.line_items[seq_id]))
 
         return "\n".join(dstrs)
+
+
+    def get_spreadsheet_header(self):
+        props = ["datetime", "pagenum", "pages", "detail_type", "department_code", "program_id", "program_name", "structure_number", "subject_committee_code", "subject_committee_name", "sequence_num", "explanation", "pos_y0", "amt_y0", "mof_y0", "pos_y1", "amt_y1", "mof_y1",]
+        return props
+
+
+    def get_spreadsheet_rows(self, emit_header = False):
+        props = self.get_spreadsheet_header()
+        seq_ids = getattr(self, "seq_ids", [])
+        rows = []
+        row = [str(getattr(self, prop, None)) for prop in props]
+        idxof = dict(zip(props, range(len(props))))
+        for seq_id in seq_ids:
+            row[idxof["sequence_num"]] = seq_id
+            row[idxof["explanation"]] = "\\n".join(self.explanations[seq_id])
+            line_items = self.line_items[seq_id] if len(self.line_items[seq_id]) else [[None]*6]
+            for line_item in line_items:
+                row[idxof["pos_y0"]],row[idxof["amt_y0"]],row[idxof["mof_y0"]] = line_item[0:3]
+                row[idxof["pos_y1"]],row[idxof["amt_y1"]],row[idxof["mof_y1"]] = line_item[3:6]
+                rows.append(row[:])
+
+        return [props] + rows if emit_header else rows
+
+
+
+
 
 
 def pdftotext(pdf_filename):
