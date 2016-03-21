@@ -103,7 +103,8 @@ def get_spreadsheet(pages, delimiter="\t"):
     for page in pages:
         for row in page.get_spreadsheet_rows(header):
             header = False
-            row = ['""' if ent is None else ent for ent in row]
+            row = ["" if ent is None else ent for ent in row]
+            row = ['"{}"'.format(ent) for ent in row]
             text.append(DELIMITER.join(row))
     return "\n".join(text)
 
@@ -223,6 +224,7 @@ class HBWSPage:
             line_items.append(line_item)
 
         while len(line_items) > 1 and not "".join(line_items[-1]) and not "".join(line_items[-2]): line_items = line_items[:-1]
+        while len(line_items) > 1 and not "".join(line_items[-1]): line_items = line_items[:-1]
 
         return (explanations, line_items)
 
@@ -338,7 +340,7 @@ class HBWSPage:
         idxof = dict(zip(props, range(len(props))))
         for seq_id in seq_ids:
             row[idxof["sequence_num"]] = seq_id
-            row[idxof["explanation"]] = "\\n".join(self.explanations[seq_id])
+            row[idxof["explanation"]] = "\n".join(self.explanations[seq_id])
             line_items = self.line_items[seq_id] if len(self.line_items[seq_id]) else [[None]*6]
             for line_item in line_items:
                 row[idxof["pos_y0"]],row[idxof["amt_y0"]],row[idxof["mof_y0"]] = line_item[0:3]
