@@ -21,7 +21,7 @@ You can view the initial parsing results of the [2016 HB1700 HD1 Budget Workshee
 
 ## Usage
 
-`./Hawaii_Legislature_Budget_Worksheet_Converter.py 2016/2016_HB1700_HD1_final.pdf > 2016/2016_HB1700_HD1_final.csv`
+`./bin/Hawaii_Legislature_Budget_Worksheet_Converter.py 2016/2016_HB1700_HD1_final.pdf > 2016/2016_HB1700_HD1_final.csv`
 
 ## History
 
