@@ -13,6 +13,32 @@ __maintainer__ = "McKay Davis"
 __email__ = "mckay@codeforhawaii.org"
 
 
+PDFTOTEXT_FIXED_PARAM = 4
+COL_END_SEQUENCE_NUM = 24
+COL_END_EXPLANATION = 86
+TEXT_BASE_APPROPRIATIONS = "BASE APPROPRIATIONS"
+TEXT_TOTAL_BUDGET_CHANGES = 'TOTAL BUDGET CHANGES'
+TEXT_BUDGET_TOTALS = 'BUDGET TOTALS'
+
+COL_BEG_FY0_POS = 5
+COL_END_FY0_POS = 16
+COL_BEG_FY0_AMT = 18
+COL_END_FY0_AMT = 32
+COL_BEG_FY0_MOF = 35
+COL_END_FY0_MOF = 35
+
+COL_BEG_FY1_POS = 44
+COL_END_FY1_POS = 55
+COL_BEG_FY1_AMT = 57
+COL_END_FY1_AMT = 71
+COL_BEG_FY1_MOF = 74
+COL_END_FY1_MOF = 74
+
+
+
+
+
+
 import subprocess
 import sys
 import getopt
@@ -68,33 +94,77 @@ class HBWSPage:
         self.eat_empty_lines()
 
 
-        seq_len = 24
+        seq_len = COL_END_SEQUENCE_NUM
         seqline = self.curline
-        special_seq_id = "- 1"
 
-        sequences = { special_seq_id : [] }
-        seq_ids = [special_seq_id]
+        special_explanations = [TEXT_BASE_APPROPRIATIONS, TEXT_TOTAL_BUDGET_CHANGES, TEXT_BUDGET_TOTALS]
+
+        seq_ids = [special_explanations[0]]
+        sequences = { seq_ids[-1] : [] }
 
         while seqline < len(self.text):
             text = self.text[seqline]
             seqline += 1
 
             seq_id = text[:seq_len].strip()
+            text = text[seq_len:]
 
-            if len(seq_id):
-                print("Sequence id='{}'".format(seq_id))
-                if seq_id != special_seq_id:
-                    print("Changing sequence id from '{}' to '{}'".format(seq_ids[-1], seq_id))
-                    sequences[seq_id] = []
-                    seq_ids.append(seq_id)
+            if not seq_id:
+                for special in special_explanations:
+                    if text.strip().startswith(special):
+                        seq_id = special
+                        break
+
+            if len(seq_id) and not seq_id == seq_ids[-1]:
+                sequences[seq_id] = []
+                seq_ids.append(seq_id)
 
             seq_id = seq_ids[-1]
-            sequences[seq_id].append(text[seq_len:])
+            sequences[seq_id].append(text)
+
+
+        self.explinations = {}
+        self.line_items = {}
+        for seq_id in seq_ids:
+            self.explinations[seq_id], self.line_items[seq_id] = self.parse_seqeuence(sequences[seq_id])
 
         for seq_id in seq_ids:
-            txt = "\n> ".join(['']+sequences[seq_id])
-            print("Sequence: {} text={}".format(seq_id, txt))
+            print()
+            print("Sequence ID:", seq_id)
+            print("Explination:\n{}".format("\n".join(self.explinations[seq_id])))
+            print("Line items:", self.line_items[seq_id])
 
+
+    def parse_seqeuence(self, lines):
+        explinations = []
+        line_items = []
+        for line in lines:
+            explination = line[:COL_END_EXPLANATION].strip()
+            if explination: explinations.append(explination)
+
+            line = line[COL_END_EXPLANATION:]
+            line_item = self.parse_line_item(line)
+            line_items.append(line_item)
+
+        while len(line_items) and not ''.join(line_items[-1]): line_items = line_items[:-1]
+
+        return (explinations, line_items)
+
+    def parse_line_item(self, line):
+        #print("parse:")
+        #print(line)
+        #print("00000000001111111111222222222233333333334444444444555555555566666666667777777777")
+        #print("0123456789"*8)
+        #print()
+
+        fy0_pos = line[COL_BEG_FY0_POS:COL_END_FY0_POS+1]
+        fy0_amt = line[COL_BEG_FY0_AMT:COL_END_FY0_AMT+1]
+        fy0_mof = line[COL_BEG_FY0_MOF:COL_END_FY0_MOF+1]
+        fy1_pos = line[COL_BEG_FY1_POS:COL_END_FY1_POS+1]
+        fy1_amt = line[COL_BEG_FY1_AMT:COL_END_FY1_AMT+1]
+        fy1_mof = line[COL_BEG_FY1_MOF:COL_END_FY1_MOF+1]
+
+        return [txt.strip() for txt in [fy0_pos, fy0_amt, fy0_mof, fy1_pos, fy1_amt, fy1_mof]]
 
 
     def parse_timestamp(self, line):
@@ -111,7 +181,7 @@ class HBWSPage:
         return (int(components[0]), int(components[1]))
 
     def assert_linepos_is(self, line, pos, isstr):
-        assert line[pos][:len(isstr)] == isstr, "position {} is not '{}', instead is '{}' -- entire line is: '{}' -- Page debug info: {}".format(pos, isstr, line[pos], "\t".join(line), self.debug_str())
+        assert line[pos].startswith(isstr), "position {} is not '{}', instead is '{}' -- entire line is: '{}' -- Page debug info: {}".format(pos, isstr, line[pos], "\t".join(line), self.debug_str())
 
 
     def parse_page_header_line0(self, line):
@@ -177,4 +247,3 @@ def pdftotext(pdf_filename):
 
 if __name__ == "__main__":
     main()
-
