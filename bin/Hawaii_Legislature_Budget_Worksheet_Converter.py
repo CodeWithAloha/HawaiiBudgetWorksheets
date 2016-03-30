@@ -16,7 +16,8 @@ Converts Hawaii State Legislature budget worksheets from PDF format to Tab-Separ
 
 PDFTOTEXT_FIXED_PARAM = 4
 
-COL_END_SEQUENCE_NUM = 24
+COL_END_SEQUENCE_NUM = 23
+COL_BEG_EXLANATION_NUM = 24
 COL_END_EXPLANATION_PROGRAM = 86
 COL_END_EXPLANATION_DEPT_SUMMARY = 46
 COL_BEG_FY0_POS = 5
@@ -48,27 +49,27 @@ SPECIAL_EXPLANATIONS = ["BASE APPROPRIATIONS",
                         "GRAND TOTAL BUDGET"]
 
 DESC_DEPT = {
-    "Department of Accounting and General Services (DAGS)" : "AGS",
     "Department of Agriculture (DOA)" : "AGR",
+    "Department of Accounting and General Services (DAGS)" : "AGS",
     "Department of the Attorney General (AG)" : "ATG",
-    "Department of Budget and Finance (B&F)" : "BUF",
     "Department of Business, Economic Development, and Tourism (DBEDT)" : "BED",
+    "Department of Budget and Finance (B&F)" : "BUF",
     "Department of Commerce and Consumer Affairs (DCCA)" : "CCA",
     "Department of Defense (DOD)" : "DEF",
     "Department of Education (DOE)" : "EDN",
     "Office of the Governor" : "GOV",
     "Department of Hawaiian Home Lands (DHHL)" : "HHL",
-    "Department of Health (DOH)" : "HTH",
-    "Department of Human Resources Development (DHRD) " : "HRD",
     "Department of Human Services (DHS)" : "HMS",
+    "Department of Human Resources Development (DHRD) " : "HRD",
+    "Department of Health (DOH)" : "HTH",
     "Department of Labor and Industrial Relations (DLIR)" : "LBR",
     "Department of Land and Natural Resources (DLNR)" : "LNR",
     "Office of the Lieutenant Governor (LG)" : "LTG",
     "Department of Public Safety (DPS) " : "PSD",
+    "Subsidies" : "SUB",
     "Department of Taxation (DOTAX)" : "TAX",
     "Department of Transportation (DOT)" : "TRN",
     "University of Hawaii (UH)" : "UOH",
-    "Subsidies" : "SUB",
     "City and County of Honolulu" : "CCH",
     "County of Hawaii" : "COH",
     "County of Kauai" : "COK",
@@ -120,7 +121,7 @@ def pdf_to_csv(pdf_filename):
     # create a HBWSPage instance for each page
     pages = [HBWSPage(pagetext) for pagetext in textpages]
 
-    # [print page.debug_str() for page in pages]
+    # [print(page.debug_str()) for page in pages]
     return get_spreadsheet(pages, ",")
 
 def get_spreadsheet(pages, delimiter="\t"):
@@ -153,7 +154,7 @@ class HBWSPage:
         else:
             if self.department_summary_page:
                 line = self.getline()
-                self.assert_linepos_is(line, 1, "EX PLANATION")
+                self.assert_linepos_is(line, 1, "EX")
                 self.assert_linepos_is(line, 2, "FIRST FY")
                 self.assert_linepos_is(line, 3, "SECOND FY")
             self.eat_empty_lines()
@@ -192,20 +193,14 @@ class HBWSPage:
 
 
     def parse_sequences_step1(self):
-        seq_len = COL_END_SEQUENCE_NUM
-        seqline = self.curline
-
         special_explanations = SPECIAL_EXPLANATIONS
 
         seq_ids = [special_explanations[0]]
         sequences = { seq_ids[-1] : [] }
 
-        while seqline < len(self.text):
-            text = self.text[seqline]
-            seqline += 1
-
-            seq_id = text[:seq_len].strip()
-            text = text[seq_len:]
+        for seqline in range(self.curline, len(self.text)):
+            seq_id = self.text[seqline][:COL_END_SEQUENCE_NUM].strip()
+            text = self.text[seqline][COL_BEG_EXLANATION_NUM:]
 
             if not seq_id:
                 for special in special_explanations:
@@ -294,7 +289,7 @@ class HBWSPage:
     def parse_page_header_line0(self, line):
         self.assert_linepos_is(line, 3, "LEGISLATIVE BUDGET SYSTEM")
         self.datetime = self.parse_timestamp(line)
-        self.pagenum, self.pages = self.parse_pagenum(line[-1])
+        self.pagenum, self.pages = self.parse_pagenum(line[4])
 
     def parse_page_header_line1(self, line):
         self.assert_linepos_is(line, 1, "Detail Type:")
@@ -317,7 +312,10 @@ class HBWSPage:
     def parse_structure_number(self, line):
         self.assert_linepos_is(line, 1, "Structure #:")
         # Keeping as string to preserve leading zeros
-        self.structure_number = line[2]
+        if len(line) == 2:
+            self.structure_number = line[1].split()[-1]
+        else:
+            self.structure_number = line[2]
 
     def parse_subject_committee(self, line):
         assert line[1][:-3] == "Subject Committee: "
@@ -381,7 +379,7 @@ def pdftotext(pdf_filename):
     cmd = ["pdftotext",
            "-layout",
            "-fixed 4",
-           pdf_filename,
+           '"'+pdf_filename+'"',
            "-"]
     buf = subprocess.check_output(" ".join(cmd), shell=True)
     text = buf.decode("utf-8")
