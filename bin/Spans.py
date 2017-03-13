@@ -13,16 +13,16 @@ class Spans(object):
     neg_inf = float('-inf')
     pos_inf = float('inf')
     range_all = (neg_inf, pos_inf)
-    range_none = (pos_inf, neg_inf)
     def __init__(self, a = None, b = None, quant = None):
-        a = self.pos_inf if a is None else a
-        b = self.neg_inf if b is None else b
+        self.ss = []
+        if a is not None and b is not None:
+            if quant:
+                a = int(math.floor(a/quant)+0.1)
+                b = int(math.floor(b/quant)+0.1)
 
-        if quant:
-            a = int(math.floor(a/quant)+0.1)
-            b = int(math.floor(b/quant)+0.1)
+            self.ss = [(a,b)]
 
-        self.ss = [(a,b)]
+
 
     def __str__(self):
         return "{}".format(self.ss)
@@ -36,12 +36,14 @@ class Spans(object):
             result += [(s[1], 1) for s in sss.ss]
 
         result = list(sorted(result))
+
         return result
 
     def union(self, them):
         both = []
         count = 0
-        for s in Spans._combine(self, them):
+        combined = Spans._combine(self, them)
+        for s in combined:
             if s[1] == 0:
                 count += 1
                 if count == 1:
@@ -55,6 +57,7 @@ class Spans(object):
         res.ss = both
 
         return res
+
 
     def intersect(self, them):
         both = []
@@ -92,3 +95,23 @@ class Spans(object):
         for char_span in char_spans:
             spans = spans.union(char_span)
         return spans
+
+
+    def to_text():
+        txt = ""
+        for span in this.ss:
+            txt += " " * span[0]
+            txt += "*" * span[1]
+        return text()
+
+
+    def extract_text(self, text, column=None):
+        ss = self.ss
+        if column is None:
+            if ss:
+                text = text + " "*(ss[-1][1] - len(text))
+            return [text[a:b] for a,b in ss]
+        elif column >= len(ss):
+            return None
+        else:
+            return text[ss[column][0]:ss[column][1]]
