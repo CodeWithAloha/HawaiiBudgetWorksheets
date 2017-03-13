@@ -13,21 +13,25 @@ Hawaii_Legislature_Budget_Worksheet_Converter.py:
 Converts Hawaii State Legislature budget worksheets from PDF format to Tab-Separated-Values (TSV) format for import into a spreadsheet programs.
 """
 
-
 PDFTOTEXT_FIXED_PARAM = 4
 
-COL_END_SEQUENCE_NUM = 23
-COL_BEG_EXLANATION_NUM = 24
-COL_END_EXPLANATION_PROGRAM = 86
+COL_END_SEQUENCE_NUM = 19
+COL_BEG_EXPLANATION_NUM = 21
+COL_END_EXPLANATION_PROGRAM = 62
 COL_END_EXPLANATION_DEPT_SUMMARY = 46
+
 COL_BEG_FY0_POS = 5
 COL_END_FY0_POS = 16
+
 COL_BEG_FY0_AMT = 18
 COL_END_FY0_AMT = 33
+
 COL_BEG_FY0_MOF = 35
 COL_END_FY0_MOF = 35
+
 COL_BEG_FY1_POS = 44
 COL_END_FY1_POS = 55
+
 COL_BEG_FY1_AMT = 57
 COL_END_FY1_AMT = 72
 COL_BEG_FY1_MOF = 73
@@ -62,6 +66,7 @@ DESC_DEPT = {
     "Department of Human Services (DHS)" : "HMS",
     "Department of Human Resources Development (DHRD) " : "HRD",
     "Department of Health (DOH)" : "HTH",
+    "Judiciary" : "JUD",
     "Department of Labor and Industrial Relations (DLIR)" : "LBR",
     "Department of Land and Natural Resources (DLNR)" : "LNR",
     "Office of the Lieutenant Governor (LG)" : "LTG",
@@ -106,10 +111,32 @@ import sys
 import getopt
 import datetime
 import re
+import collections
+import Spans
+
+
+
+
+
+
+
+
+def err(txt):
+    sys.stderr.write(">>> {}".format(txt))
+    sys.stderr.write("\n");
+
+
+def err_col(line):
+    err("".join("{}".format((i//10)%10) for i in range(0,len (line))))
+    err("".join("{}".format(i%10) for i in range(0,len (line))))
+    err(line)
 
 
 def main():
-    print(pdf_to_csv(sys.argv[1]))
+    csv = pdf_to_csv(sys.argv[1])
+    f = open(sys.argv[1] + ".csv", "wb")
+    f.write(csv)
+    return 0
 
 
 def pdf_to_csv(pdf_filename):
@@ -119,9 +146,17 @@ def pdf_to_csv(pdf_filename):
     # remove last page, which is empty
     textpages = textpages[:-1]
     # create a HBWSPage instance for each page
-    pages = [HBWSPage(pagetext) for pagetext in textpages]
+    #pages = [ for pagetext in textpages]
 
-    # [print(page.debug_str()) for page in pages]
+    pages = []
+    for pagetext in textpages:
+        page = HBWSPage(pagetext)
+        print(page.debug_str())
+        pages.append(page)
+        input("<enter>")
+
+        #[) for page in pages]
+
     return get_spreadsheet(pages, ",")
 
 def get_spreadsheet(pages, delimiter="\t"):
@@ -146,11 +181,30 @@ class HBWSPage:
         # split each line into components seperated by two or more spaces
         self.lines = [re.split(" \s+", line) for line in self.text]
         self.curline = 0
-        self.parse_page_header()
+
+        self.parse_page_header_line0(self.getline())
+        self.parse_page_header_line1(self.getline())
+        self.eat_empty_lines()
+
         self.parse_content_header()
 
         if self.program_page:
-            self.parse_program_page()
+            # Parse Program Page
+            self.parse_structure_number(self.getline())
+            self.parse_subject_committee(self.getline())
+            self.eat_empty_lines()
+            self.parse_program_table_header(self.getline())
+            self.eat_empty_lines()
+
+            # parse sequences step 1
+
+            sequences = self.parse_sequences_step1()
+
+            for i,j in sequences.items():
+                err("SEQ: {}: [{}]".format(i, "\n>>>>>> ".join(j)))
+
+            # parse sequences step 2
+            self.parse_sequences_step2(sequences, COL_END_EXPLANATION_PROGRAM)
         else:
             if self.department_summary_page:
                 line = self.getline()
@@ -158,14 +212,12 @@ class HBWSPage:
                 self.assert_linepos_is(line, 2, "FIRST FY")
                 self.assert_linepos_is(line, 3, "SECOND FY")
             self.eat_empty_lines()
-            self.parse_sequences(COL_END_EXPLANATION_DEPT_SUMMARY)
+
+            sequences = self.parse_sequences_step1()
+            self.parse_sequences_step2(sequences, COL_END_EXPLANATION_DEPT_SUMMARY)
 
         #print(self.debug_str()+"\n")
 
-    def parse_page_header(self):
-        self.parse_page_header_line0(self.getline())
-        self.parse_page_header_line1(self.getline())
-        self.eat_empty_lines()
 
     def parse_content_header(self):
         self.parse_department_or_program_id(self.getline())
@@ -178,29 +230,21 @@ class HBWSPage:
         self.curline += 1
         return self.lines[self.curline-1]
 
-    def parse_program_page(self):
-        self.parse_structure_number(self.getline())
-        self.parse_subject_committee(self.getline())
-        self.eat_empty_lines()
-        self.parse_program_table_header(self.getline())
-        self.eat_empty_lines()
-        self.parse_sequences(COL_END_EXPLANATION_PROGRAM)
-
-
-    def parse_sequences(self, col_end_explanation):
-        (seq_ids, sequences) = self.parse_sequences_step1()
-        self.parse_sequences_step2(seq_ids, sequences, col_end_explanation)
-
-
     def parse_sequences_step1(self):
         special_explanations = SPECIAL_EXPLANATIONS
 
         seq_ids = [special_explanations[0]]
-        sequences = { seq_ids[-1] : [] }
+        sequences = collections.OrderedDict()
+        sequences[seq_ids[-1]] = []
 
         for seqline in range(self.curline, len(self.text)):
-            seq_id = self.text[seqline][:COL_END_SEQUENCE_NUM].strip()
-            text = self.text[seqline][COL_BEG_EXLANATION_NUM:]
+            linetxt = self.text[seqline]
+            err_col(linetxt)
+            spans = Spans.Spans.from_text(linetxt)
+            err(spans)
+
+            seq_id = linetxt[:COL_END_SEQUENCE_NUM].strip()
+            text = linetxt[COL_BEG_EXPLANATION_NUM:]
 
             if not seq_id:
                 for special in special_explanations:
@@ -215,17 +259,23 @@ class HBWSPage:
             seq_id = seq_ids[-1]
             sequences[seq_id].append(text)
 
+        assert list(sorted(seq_ids)) == list(sorted(sequences.keys())), "{}\n{}\n".format(list(sorted(seq_ids)), list(sorted(sequences.keys())))
+        return sequences
+
         return (seq_ids, sequences)
 
-    def parse_sequences_step2(self, seq_ids, sequences, col_end_explanation):
+
+
+    def parse_sequences_step2(self, sequences, col_end_explanation):
         self.explanations = {}
         self.line_items = {}
         self.seq_ids = []
 
-        for seq_id in seq_ids:
-            ex, li = self.parse_sequence(seq_id, sequences[seq_id], col_end_explanation)
-            if len(ex) or len(li):
-                self.explanations[seq_id], self.line_items[seq_id] = (ex, li)
+        for seq_id, seq_lines in sequences.items():
+            explanation, line_item = self.parse_sequence(seq_id, seq_lines, col_end_explanation)
+            if explanation or line_item:
+                self.explanations[seq_id] = explanation
+                self.line_items[seq_id] = line_item
                 self.seq_ids.append(seq_id)
 
 
@@ -234,6 +284,7 @@ class HBWSPage:
         explanations = []
         line_items = []
         for line in lines:
+
             explanation = line[:col_end_explanation]
             #print("EXPLANATION FROM:'{}' TO '{}'".format(line, explanation))
             explanation = explanation.rstrip()
@@ -241,8 +292,12 @@ class HBWSPage:
             if explanation: explanations.append(explanation)
 
             line = line[col_end_explanation:]
+            err("parse sequence line:")
+            err_col(line)
+
             line_item = self.parse_line_item(line)
             line_items.append(line_item)
+            err(line_item)
 
         while len(line_items) > 1 and not "".join(line_items[-1]) and not "".join(line_items[-2]): line_items = line_items[:-1]
         while len(line_items) > 1 and not "".join(line_items[-1]): line_items = line_items[:-1]
@@ -256,6 +311,7 @@ class HBWSPage:
         fy1_pos = line[COL_BEG_FY1_POS:COL_END_FY1_POS+1]
         fy1_amt = line[COL_BEG_FY1_AMT:COL_END_FY1_AMT+1]
         fy1_mof = line[COL_BEG_FY1_MOF:COL_END_FY1_MOF+1]
+        err([fy0_pos, fy0_amt, fy0_mof, fy1_pos, fy1_amt, fy1_mof])
         result = [txt.strip(" *") for txt in [fy0_pos, fy0_amt, fy0_mof, fy1_pos, fy1_amt, fy1_mof]]
 
         if 0:
@@ -294,11 +350,11 @@ class HBWSPage:
     def parse_page_header_line1(self, line):
         self.assert_linepos_is(line, 1, "Detail Type:")
         self.assert_linepos_is(line, 2, "BUDGET WORKSHEET")
-        self.detail_type = line[1][-1:]
+        self.detail_type = line[1].split()[-1]
 
     def parse_department_or_program_id(self, line):
         self.department_summary_page = line[1] == "Department:"
-        self.program_page = line[1] == "Program ID"
+        self.program_page = "Program ID" in line[1]
 
         if ((self.program_page and len(line) > 2 and len(line[2]) > 3) or
             (self.department_summary_page and len(line) > 2)):
@@ -310,6 +366,10 @@ class HBWSPage:
             self.program_name = line[3]
 
     def parse_structure_number(self, line):
+        if line[1].startswith("Subject Committee"):
+            self.curline -= 1
+            return
+
         self.assert_linepos_is(line, 1, "Structure #:")
         # Keeping as string to preserve leading zeros
         if len(line) == 2:
@@ -336,8 +396,8 @@ class HBWSPage:
         dstrs = []
         for prop in props:
             val = getattr(self, prop, None)
-            if not val is None:
-                dstrs.append("{}={}".format(prop, val))
+            #if not val is None:
+            dstrs.append("{}={}".format(prop, val))
 
         seq_ids = getattr(self, "seq_ids", [])
         for seq_id in seq_ids:
