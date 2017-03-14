@@ -107,7 +107,7 @@ def err_col(line):
 def main():
     csv_text = pdf_to_csv(sys.argv[1])
 
-    with open(sys.argv[1] + ".csv", "wt") as f:
+    with open(sys.argv[1][:-4] + ".tsv", "wt") as f:
         f.write(csv_text)
 
     return 0
@@ -153,8 +153,10 @@ def pdf_to_csv(pdf_filename):
         except:
             badpages.append(pagenum)
             err("badpage = {}".format(pagenum))
+            raise
 
-    err("badpages (#{}) = {}".format(len(badpages), badpages))
+    if badpages:
+        err("badpages (#{}) = {}".format(len(badpages), badpages))
 
     return "\n".join(document_csv_rows)
 
@@ -182,6 +184,7 @@ class HBWSPage:
 
         # split the page text into single lines
         self.text = text.split("\n")
+
         # split each line into components seperated by two or more spaces
         self.lines = [re.split(" \s+", line) for line in self.text]
         self.curline = 0
@@ -192,6 +195,8 @@ class HBWSPage:
 
         self.parse_department_or_program_id(self.getline())
         self.eat_empty_lines()
+
+        self.fix_2017_exec_sheet_bugs()
 
         if self.program_page:
             # Parse Program Page
@@ -223,6 +228,8 @@ class HBWSPage:
 
         global_spans = PROGRAM_SEQUENCES_SPANS if self.program_page else DEPARTMENT_SEQUENCES_SPANS
 
+
+
         if not len(global_spans.ss):
             global_spans = spans
         else:
@@ -247,6 +254,32 @@ class HBWSPage:
             DEPARTMENT_SEQUENCES_SPANS = global_spans
 
         self.spans = spans
+
+
+    def fix_2017_exec_sheet_bugs(self):
+        if not (self.datetime.year == 2017 and
+            self.datetime.month == 2 and
+            self.datetime.day == 23):
+            return
+
+        if self.pagenum == 576:
+            for i in range(18, 22):
+                line = self.text[i]
+                line = delchar_at_pos(line, -14)
+                line = inschar_at_pos(line, " ", -1)
+                self.text[i] = line
+
+            for i in range(18, 26):
+                self.text[i] = inschar_at_pos(self.text[i], " ", -1)
+
+        if self.pagenum == 1018:
+            self.text[30] = delchar_at_pos(self.text[30], 99)
+            self.text[30] = inschar_at_pos(self.text[30], " ", 110)
+            self.text[30] = delchar_at_pos(self.text[30], -15)
+            self.text[30] = inschar_at_pos(self.text[30], " ", -1)
+            self.text[20] = self.text[20].replace("GRAND TOTAL      APPROPRIATIONS",
+                                                  "     GRAND TOTAL APPROPRIATIONS");
+
 
 
     def eat_empty_lines(self):
@@ -363,6 +396,12 @@ class HBWSPage:
         # Determine which this is
         self.department_summary_page = line[1] == "Department:"
         self.program_page = "Program ID" in line[1]
+
+        if self.pagenum == self.pages:
+            self.curline -= 1
+            assert not self.program_page and not self.department_summary_page
+            self.department_summary_page = True
+            return
 
         # Assert that this is either a department or program page
         assert self.program_page or self.department_summary_page
