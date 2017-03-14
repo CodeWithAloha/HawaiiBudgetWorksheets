@@ -156,7 +156,8 @@ def pdf_to_csv(pdf_filename, outfile):
     badpages = []
     emit_row(outfile, HBWSPage.get_spreadsheet_header())
     for pagenum, pagetext in enumerate(textpages):
-        err2("parsing {}".format(pagenum+1))
+        pagenum += 1
+        err2("parsing {}".format(pagenum))
         try:
             page = HBWSPage(pagetext)
             rows = page.get_spreadsheet_rows()
@@ -164,9 +165,9 @@ def pdf_to_csv(pdf_filename, outfile):
                 emit_row(outfile, row)
         except:
             badpages.append(pagenum)
-            err2("badpage = {}".format(pagenum+1))
+            err2("badpage = {}".format(pagenum))
 
-    err2("bad pages = {}".format(badpages))
+    err2("badpages = {}".format(badpages))
 
         #pages.append(page)
 
@@ -248,12 +249,9 @@ class HBWSPage:
                 PROGRAM_SEQUENCES_SPANS = spans
             else:
                 new_ss = PROGRAM_SEQUENCES_SPANS.union(spans)
-                if spans.ss and spans.ss[-1][0] == 162:
-                    self.print_sequences_spans(sequences, spans)
-                    input("162 introduced on page {}".format(self.pagenum))
 
                 if len(new_ss.ss) != len(PROGRAM_SEQUENCES_SPANS.ss):
-                    err("\n{}: {}\n{}: {}\n\n{}: {}".format
+                    err2("\n{}: {}\n{}: {}\n\n{}: {}".format
                         (len(spans.ss), spans.ss,
                          len(PROGRAM_SEQUENCES_SPANS.ss), PROGRAM_SEQUENCES_SPANS.ss,
                          len(new_ss.ss), new_ss.ss
@@ -552,6 +550,15 @@ class HBWSPage:
             numtxt = numtxt.replace(",", "")
             return numtxt
 
+        def fix_explanation_lines(exp):
+            # remove leading and trailing empty lines
+            exp = [line.rstrip() for line in exp]
+            while exp and not exp[0].strip(): exp.pop(0)
+            while exp and not exp[-1].strip(): exp.pop(-1)
+            while exp and "".join(line[0] if line else "X" for line in exp) == " " * len(exp):
+                exp = [line[1:] for line in exp]
+            return exp
+
         y0_pos_offset = props.index("pos_perm_y0")
         y1_mof_offset = props.index("mof_y1")
         num_seq = y1_mof_offset - y0_pos_offset + 1
@@ -560,7 +567,9 @@ class HBWSPage:
             row["sequence_num"] = seq_id
 
             spans = self.spans
-            exp = [spans.extract_text(line, 0).rstrip() for line in seq_lines]
+
+            exp = [spans.extract_text(line, 0) for line in seq_lines]
+            exp = fix_explanation_lines(exp)
             exp = "\n".join(exp)
             row["explanation"] = exp
 
@@ -579,7 +588,26 @@ class HBWSPage:
 
                 rowdata = [row[prop] for prop in props]
 
+                lastrow = [] if not rows else rows[-1]
+
+                if lastrow == rowdata:
+                    continue
+
+                if rowdata[:y0_pos_offset] == lastrow[:y0_pos_offset]:
+                    #err2(rowdata[:y0_pos_offset])
+                    #err2(lastrow[:y0_pos_offset])
+
+                    rstr = "".join([str(e) for e in rowdata[y0_pos_offset:]])
+                    if not rstr:
+                        continue
+
+                    lstr = "".join([str(e) for e in lastrow[y0_pos_offset:]])
+                    if not lstr:
+                        rows[-1] = rowdata
+                        continue
+
                 rows.append(rowdata)
+
 
         return rows
 
