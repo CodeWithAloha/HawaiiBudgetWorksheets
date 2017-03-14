@@ -145,7 +145,6 @@ def pdf_to_csv(pdf_filename):
         # 1-based indexing for pagenum
         pagenum += 1
 
-        err("parsing {}".format(pagenum))
         try:
             page = HBWSPage(pagetext)
             rows = page.get_spreadsheet_rows()
@@ -178,8 +177,8 @@ class HBWSPage:
 
         # These lines of exactly 84 asterisks mess up parsing
         # by bleeding into the first FY perm, replace them w/ 25 asterisks
-        text = text.replace("*************************************************************************************",
-                     "*" * 25)
+        bad = "*************************************************************************************"
+        text = text.replace(bad, "*" * 25 + " " * (len(bad) - 25))
 
         # split the page text into single lines
         self.text = text.split("\n")
@@ -222,40 +221,30 @@ class HBWSPage:
 
         spans = self.parse_sequences_spans(self.sequences)
 
+        global_spans = PROGRAM_SEQUENCES_SPANS if self.program_page else DEPARTMENT_SEQUENCES_SPANS
+
+        if not len(global_spans.ss):
+            global_spans = spans
+        else:
+            new_ss = global_spans.union(spans)
+
+            if len(new_ss.ss) == len(global_spans.ss):
+                global_spans = new_ss
+                spans = new_ss
+            elif len(spans.ss) != 9:
+                err("\n{}: {}\n{}: {}\n\n{}: {}".format
+                    (len(spans.ss), spans.ss,
+                     len(global_spans.ss), global_spans.ss,
+                     len(new_ss.ss), new_ss.ss
+                    ))
+                self.print_sequences_spans(self.sequences, spans)
+                self.print_sequences_spans(self.sequences, new_ss)
+                assert 0
 
         if self.program_page:
-            if not len(PROGRAM_SEQUENCES_SPANS.ss):
-                PROGRAM_SEQUENCES_SPANS = spans
-            else:
-                new_ss = PROGRAM_SEQUENCES_SPANS.union(spans)
-
-                if len(new_ss.ss) == len(PROGRAM_SEQUENCES_SPANS.ss):
-                    PROGRAM_SEQUENCES_SPANS = new_ss
-                    spans = new_ss
-                elif len(spans.ss) != 9:
-                    err("\n{}: {}\n{}: {}\n\n{}: {}".format
-                        (len(spans.ss), spans.ss,
-                         len(PROGRAM_SEQUENCES_SPANS.ss), PROGRAM_SEQUENCES_SPANS.ss,
-                         len(new_ss.ss), new_ss.ss
-                        ))
-                    self.print_sequences_spans(self.sequences, spans)
-                    self.print_sequences_spans(self.sequences, new_ss)
-                    assert 0
+            PROGRAM_SEQUENCES_SPANS = global_spans
         else:
-            if not len(DEPARTMENT_SEQUENCES_SPANS.ss):
-                DEPARTMENT_SEQUENCES_SPANS = spans
-            else:
-                new_ss = DEPARTMENT_SEQUENCES_SPANS.union(spans)
-                if len(new_ss.ss) == len(DEPARTMENT_SEQUENCES_SPANS.ss):
-                    DEPARTMENT_SEQUENCES_SPANS = new_ss
-                    spans = new_ss
-                elif len(spans.ss) != 9:
-                    err("\n{}: {}\n{}: {}\n\n{}: {}".format
-                        (len(new_ss.ss), new_ss.ss,
-                         len(DEPARTMENT_SEQUENCES_SPANS.ss),DEPARTMENT_SEQUENCES_SPANS.ss,
-                         len(spans.ss), spans.ss))
-                    self.print_sequences_spans(self.sequences, spans)
-                    assert 0
+            DEPARTMENT_SEQUENCES_SPANS = global_spans
 
         self.spans = spans
 
