@@ -113,13 +113,13 @@ import collections
 import Spans
 
 
-
-
-
-
-
-
 def err(txt):
+    return
+    sys.stderr.write(">>> {}".format(txt))
+    sys.stderr.write("\n");
+
+
+def err2(txt):
     sys.stderr.write(">>> {}".format(txt))
     sys.stderr.write("\n");
 
@@ -131,30 +131,48 @@ def err_col(line):
 
 
 def main():
-    csv = pdf_to_csv(sys.argv[1])
-    f = open(sys.argv[1] + ".csv", "wb")
-    f.write(csv)
+    f = open(sys.argv[1] + ".csv", "wt")
+    pdf_to_csv(sys.argv[1], f)
     return 0
 
 
-def pdf_to_csv(pdf_filename):
+def emit_row(outfile, row, delimiter = "\t"):
+    rowtxt = ["" if entry is None else entry for entry in row]
+    rowtxt = ['"{}"'.format(ent) for ent in rowtxt]
+    rowtxt = delimiter.join(rowtxt)
+    outfile.write(rowtxt)
+    outfile.write("\n")
+
+
+
+def pdf_to_csv(pdf_filename, outfile):
     text = pdftotext(pdf_filename)
     # split pages at pagebreak char
     textpages = text.split("\x0c")
     # remove last page, which is empty
     textpages = textpages[:-1]
     # create a HBWSPage instance for each page
-    #pages = [ for pagetext in textpages]
 
-    pages = []
-    for pagetext in textpages:
-        page = HBWSPage(pagetext)
-        print(page.debug_str())
-        pages.append(page)
+    badpages = []
+    emit_row(outfile, HBWSPage.get_spreadsheet_header())
+    for pagenum, pagetext in enumerate(textpages):
+        err2("parsing {}".format(pagenum+1))
+        try:
+            page = HBWSPage(pagetext)
+            rows = page.get_spreadsheet_rows()
+            for row in rows:
+                emit_row(outfile, row)
+        except:
+            badpages.append(pagenum)
+            err2("badpage = {}".format(pagenum+1))
+
+    err2("bad pages = {}".format(badpages))
+
+        #pages.append(page)
 
         #[) for page in pages]
 
-    return get_spreadsheet(pages, ",")
+    #return get_spreadsheet(pages, ",")
 
 def get_spreadsheet(pages, delimiter="\t"):
     text = []
@@ -216,35 +234,15 @@ class HBWSPage:
 
             # parse sequences step 1
             sequences = self.parse_sequences_step1(162)
+            if self.pagenum == 192:
+                return
+                key = list(sequences.keys())[0]
+                err("KEY="+key)
+                err("KEY={}".format(sequences[key]))
+                sequences[key][0] = inschar_at_pos(sequences[key][0], " ", 85)
 
 
-            bug1 = self.pagenum == 52 and "6-001" in sequences
-
-            bug2 = self.pagenum == 65 and "TOTAL BUDGET CHANGES" in sequences
-
-            bug1 = bug2 = False
-
-            if bug1:
-                sequences["6-001"][-10] = delchar_at_pos(sequences["6-001"][-10], -20)
-                sequences["6-001"][-10] = inschar_at_pos(sequences["6-001"][-10], " ", -1)
-
-                sequences["6-001"][-8] = delchar_at_pos(sequences["6-001"][-8], -20)
-                sequences["6-001"][-8] = inschar_at_pos(sequences["6-001"][-8], " ", -1)
-
-                sequences["6-001"][-4] = sequences["6-001"][-4][:-1] + " N"
-                sequences["6-001"][-2] = sequences["6-001"][-2][:-1] + " W"
-
-
-
-            if bug2:
-                sequences["TOTAL BUDGET CHANGES"][0] = delchar_at_pos(sequences["TOTAL BUDGET CHANGES"][0], -20)
-                sequences["TOTAL BUDGET CHANGES"][0] = inschar_at_pos(sequences["TOTAL BUDGET CHANGES"][0], " ", -1)
-
-
-
-
-
-            spans = self.parse_sequences_spans(sequences, bug1)
+            spans = self.parse_sequences_spans(sequences)
 
             if not len(PROGRAM_SEQUENCES_SPANS.ss):
                 PROGRAM_SEQUENCES_SPANS = spans
@@ -256,12 +254,15 @@ class HBWSPage:
 
                 if len(new_ss.ss) != len(PROGRAM_SEQUENCES_SPANS.ss):
                     err("\n{}: {}\n{}: {}\n\n{}: {}".format
-                        (len(new_ss.ss), new_ss.ss,
+                        (len(spans.ss), spans.ss,
                          len(PROGRAM_SEQUENCES_SPANS.ss), PROGRAM_SEQUENCES_SPANS.ss,
-                         len(spans.ss), spans.ss))
+                         len(new_ss.ss), new_ss.ss
+                        ))
                     self.print_sequences_spans(sequences, spans)
+                    self.print_sequences_spans(sequences, new_ss)
                     assert 0
                 PROGRAM_SEQUENCES_SPANS = new_ss
+                spans = PROGRAM_SEQUENCES_SPANS
 
             self.print_sequences_spans(sequences, PROGRAM_SEQUENCES_SPANS)
 
@@ -294,8 +295,13 @@ class HBWSPage:
                     assert 0
                 DEPARTMENT_SEQUENCES_SPANS = new_ss
 
+            spans = DEPARTMENT_SEQUENCES_SPANS
+
             self.print_sequences_spans(sequences, DEPARTMENT_SEQUENCES_SPANS)
             #self.parse_sequences_step2(sequences, COL_END_EXPLANATION_DEPT_SUMMARY)
+
+        self.sequences = sequences
+        self.spans = spans
 
         #print(self.debug_str()+"\n")
         err("PROGRAM_SEQUENCES_SPANS")
@@ -338,6 +344,11 @@ class HBWSPage:
             seq_id = seq_ids[-1]
             sequences[seq_id].append(text)
 
+        for key in sequences.keys():
+            if not sequences[key]:
+                del sequences[key]
+                del seq_ids[seq_ids.index(key)]
+
         assert list(sorted(seq_ids)) == list(sorted(sequences.keys())), "{}\n{}\n".format(list(sorted(seq_ids)), list(sorted(sequences.keys())))
         return sequences
 
@@ -366,7 +377,7 @@ class HBWSPage:
         for seq, seq_lines in sequences.items():
             for seq_line in seq_lines:
                 parts = spans.extract_text(seq_line)
-                err("\nseq: {:20s} ---> {}".format(seq, parts))
+                #sys.stderr.write("\nseq: {:20s} ---> {}\n".format(seq, parts))
 
 
     def parse_sequences_with_spans(self, sequences, spans):
@@ -525,28 +536,52 @@ class HBWSPage:
 
         return "\n".join(dstrs)
 
-
-    def get_spreadsheet_header(self):
-        props = ["datetime", "pagenum", "pages", "year0", "year1", "detail_type", "department_code", "department", "program_id", "program_name", "structure_number", "subject_committee_code", "subject_committee_name", "sequence_num", "explanation", "pos_y0", "amt_y0", "mof_y0", "pos_y1", "amt_y1", "mof_y1",]
+    @staticmethod
+    def get_spreadsheet_header():
+        props = ["datetime", "pagenum", "pages", "year0", "year1", "detail_type", "department_code", "department", "program_id", "program_name", "structure_number", "subject_committee_code", "subject_committee_name", "sequence_num", "explanation", "pos_perm_y0", "pos_temp_y0", "amt_y0", "mof_y0", "pos_perm_y1", "pos_temp_y1", "amt_y1", "mof_y1",]
         return props
 
 
-    def get_spreadsheet_rows(self, emit_header = False):
+    def get_spreadsheet_rows(self):
         props = self.get_spreadsheet_header()
-        seq_ids = getattr(self, "seq_ids", [])
         rows = []
-        row = [str(getattr(self, prop, "")) for prop in props]
-        idxof = dict(zip(props, range(len(props))))
-        for seq_id in seq_ids:
-            row[idxof["sequence_num"]] = seq_id
-            row[idxof["explanation"]] = "\n".join(self.explanations[seq_id])
-            line_items = self.line_items[seq_id] if len(self.line_items[seq_id]) else [[None]*6]
-            for line_item in line_items:
-                row[idxof["pos_y0"]],row[idxof["amt_y0"]],row[idxof["mof_y0"]] = line_item[0:3]
-                row[idxof["pos_y1"]],row[idxof["amt_y1"]],row[idxof["mof_y1"]] = line_item[3:6]
-                rows.append(row[:])
+        row = { prop: getattr(self, prop, "") for prop in props }
 
-        return [props] + rows if emit_header else rows
+        def fix_financial_number(numtxt):
+            numtxt = numtxt.strip()
+            numtxt = numtxt.replace(",", "")
+            return numtxt
+
+        y0_pos_offset = props.index("pos_perm_y0")
+        y1_mof_offset = props.index("mof_y1")
+        num_seq = y1_mof_offset - y0_pos_offset + 1
+
+        for seq_id, seq_lines in self.sequences.items():
+            row["sequence_num"] = seq_id
+
+            spans = self.spans
+            exp = [spans.extract_text(line, 0).rstrip() for line in seq_lines]
+            exp = "\n".join(exp)
+            row["explanation"] = exp
+
+            for line in seq_lines:
+                parts = spans.extract_text(line)
+                #err2(line)
+                #err2(parts)
+
+
+                for i in range(num_seq):
+                    pid = props[i + y0_pos_offset]
+                    row[pid] = parts[i+1]
+                    #print("{} = {}".format(pid, row[pid]))
+
+                    row[pid] = fix_financial_number(row[pid])
+
+                rowdata = [row[prop] for prop in props]
+
+                rows.append(rowdata)
+
+        return rows
 
 
 
