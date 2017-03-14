@@ -167,9 +167,6 @@ def inschar_at_pos(txt, char, atpos):
     return txt[:atpos] + char + txt[atpos:]
 
 
-
-
-
 PROGRAM_SEQUENCES_SPANS = Spans.Spans()
 DEPARTMENT_SEQUENCES_SPANS = Spans.Spans()
 
@@ -195,7 +192,6 @@ class HBWSPage:
         self.eat_empty_lines()
 
         self.parse_department_or_program_id(self.getline())
-
         self.eat_empty_lines()
 
         if self.program_page:
@@ -203,15 +199,31 @@ class HBWSPage:
             self.parse_structure_number(self.getline())
             self.parse_subject_committee(self.getline())
             self.eat_empty_lines()
-
             self.parse_program_table_header_line1(self.getline())
-            self.parse_program_table_header_line2(self.getline())
-            self.eat_empty_lines()
+        else:
+            assert self.department_summary_page
+            line = self.getline()
+            self.assert_linepos_is(line, 1, "EX")
+            self.assert_linepos_is(line, 2, "FIRST FY")
+            self.assert_linepos_is(line, 3, "SECOND FY")
 
-            # parse sequences step 1
-            sequences = self.parse_sequences_step1(162)
-            spans = self.parse_sequences_spans(sequences)
 
+        self.parse_program_table_header_line2(self.getline())
+        self.eat_empty_lines()
+
+
+        self.sequences = self.find_sequence_blocks()
+
+        # various program pages have MOF for Y2 in col 162 (instead of 163)
+        # this makes the next parse_sequences_span step fail
+        # this hack fixes that by inserting a space in col 162 if needed
+        if self.program_page:
+            self.hack_sequence_blocks(self.sequences, 162)
+
+        spans = self.parse_sequences_spans(self.sequences)
+
+
+        if self.program_page:
             if not len(PROGRAM_SEQUENCES_SPANS.ss):
                 PROGRAM_SEQUENCES_SPANS = spans
             else:
@@ -226,25 +238,10 @@ class HBWSPage:
                          len(PROGRAM_SEQUENCES_SPANS.ss), PROGRAM_SEQUENCES_SPANS.ss,
                          len(new_ss.ss), new_ss.ss
                         ))
-                    self.print_sequences_spans(sequences, spans)
-                    self.print_sequences_spans(sequences, new_ss)
+                    self.print_sequences_spans(self.sequences, spans)
+                    self.print_sequences_spans(self.sequences, new_ss)
                     assert 0
         else:
-            assert self.department_summary_page
-
-            line = self.getline()
-            self.assert_linepos_is(line, 1, "EX")
-            self.assert_linepos_is(line, 2, "FIRST FY")
-            self.assert_linepos_is(line, 3, "SECOND FY")
-
-            self.parse_program_table_header_line2(self.getline())
-
-            self.eat_empty_lines()
-
-            sequences = self.parse_sequences_step1()
-            spans = self.parse_sequences_spans(sequences)
-
-
             if not len(DEPARTMENT_SEQUENCES_SPANS.ss):
                 DEPARTMENT_SEQUENCES_SPANS = spans
             else:
@@ -257,10 +254,9 @@ class HBWSPage:
                         (len(new_ss.ss), new_ss.ss,
                          len(DEPARTMENT_SEQUENCES_SPANS.ss),DEPARTMENT_SEQUENCES_SPANS.ss,
                          len(spans.ss), spans.ss))
-                    self.print_sequences_spans(sequences, spans)
+                    self.print_sequences_spans(self.sequences, spans)
                     assert 0
 
-        self.sequences = sequences
         self.spans = spans
 
 
@@ -274,7 +270,15 @@ class HBWSPage:
         return self.lines[self.curline-1]
 
 
-    def parse_sequences_step1(self, special_col = 0):
+    def hack_sequence_blocks(self, seq_blocks, special_col):
+        for seq_id, seq_lines in seq_blocks.items():
+            for i, seq_line in enumerate(seq_lines):
+                if special_col < len(seq_line) and seq_line[special_col] != " ":
+                    seq_lines[i] = inschar_at_pos(seq_line, " ", special_col)
+            seq_blocks[seq_id] = seq_lines
+        return seq_blocks
+
+    def find_sequence_blocks(self):
         special_explanations = SPECIAL_EXPLANATIONS
 
         seq_ids = [special_explanations[0]]
@@ -286,9 +290,6 @@ class HBWSPage:
 
             seq_id = linetxt[:COL_END_SEQUENCE_NUM].strip()
             text = linetxt[COL_BEG_EXPLANATION_NUM:]
-
-            if special_col and special_col < len(text) and text[special_col] != " ":
-                text = inschar_at_pos(text, " ", 162)
 
             if not seq_id:
                 for special in special_explanations:
@@ -338,7 +339,7 @@ class HBWSPage:
         for seq, seq_lines in sequences.items():
             for seq_line in seq_lines:
                 parts = spans.extract_text(seq_line)
-                err("\nseq: {:20s} ---> {}\n".format(seq, parts))
+                err("seq: {:20s} ---> {}".format(seq, parts))
 
     def parse_timestamp(self, line):
         # insert leading 0 for hour in time
@@ -399,10 +400,12 @@ class HBWSPage:
         else:
             self.structure_number = line[2]
 
+
     def parse_subject_committee(self, line):
         assert line[1][:-3] == "Subject Committee: "
         self.subject_committee_code = line[1][-3:]
         self.subject_committee_name = line[2]
+
 
     def parse_program_table_header_line1(self, line):
         self.assert_linepos_is(line, 1, "SEQ #")
@@ -415,11 +418,9 @@ class HBWSPage:
 
     def parse_program_table_header_line2(self, line):
         assert len(line) == 7, line
-
         assert line[1] == "Perm", line
         assert line[2] == "Temp", line
         assert line[3] == "Amt", line
-
         assert line[4] == "Perm", line
         assert line[5] == "Temp", line
         assert line[6] == "Amt", line
@@ -444,10 +445,48 @@ class HBWSPage:
 
         return "\n".join(dstrs)
 
+
     @staticmethod
     def get_spreadsheet_header():
         props = ["datetime", "pagenum", "pages", "year0", "year1", "detail_type", "department_code", "department", "program_id", "program_name", "structure_number", "subject_committee_code", "subject_committee_name", "sequence_num", "explanation", "pos_perm_y0", "pos_temp_y0", "amt_y0", "mof_y0", "pos_perm_y1", "pos_temp_y1", "amt_y1", "mof_y1",]
         return props
+
+
+    def get_seq_block_explanation(self, seq_lines):
+        exp = [self.spans.extract_text(line, 0) for line in seq_lines]
+        exp = [line.rstrip() for line in exp]
+        while exp and not exp[0].strip(): exp.pop(0)
+        while exp and not exp[-1].strip(): exp.pop(-1)
+        while exp and "".join(line[0] if line else "X" for line in exp) == " " * len(exp):
+            exp = [line[1:] for line in exp]
+        exp = "\n".join(exp)
+        return exp
+
+
+    def filter_duplicate_rows(self, rows, y0_pos_offset):
+        newrows = [[]]
+        for rowdata in rows:
+            lastrow = newrows[-1]
+            # Filter total duplicates
+            if lastrow == rowdata:
+                continue
+            # if the entire line up to the actual budget numbers is the same
+            if rowdata[:y0_pos_offset] == lastrow[:y0_pos_offset]:
+                rstr = "".join([str(e) for e in rowdata[y0_pos_offset:]])
+                # ... and the budget numbers for the new row are entirely empty
+                if not rstr:
+                    # Dont emit this row
+                    continue
+                lstr = "".join([str(e) for e in lastrow[y0_pos_offset:]])
+                # if the budget numbers for the new row are NOT empty
+                # and the last row's budget numbers ARE empty
+                # then replace the last row with this one
+                if not lstr:
+                    newrows[-1] = rowdata
+                    continue
+            newrows.append(rowdata)
+
+        return newrows[1:]
 
 
     def get_spreadsheet_rows(self):
@@ -455,61 +494,26 @@ class HBWSPage:
         rows = []
         row = { prop: getattr(self, prop, "") for prop in props }
 
-        def fix_financial_number(numtxt):
-            numtxt = numtxt.strip()
-            numtxt = numtxt.replace(",", "")
-            return numtxt
-
-        def fix_explanation_lines(exp):
-            # remove leading and trailing empty lines
-            exp = [line.rstrip() for line in exp]
-            while exp and not exp[0].strip(): exp.pop(0)
-            while exp and not exp[-1].strip(): exp.pop(-1)
-            while exp and "".join(line[0] if line else "X" for line in exp) == " " * len(exp):
-                exp = [line[1:] for line in exp]
-            return exp
-
         y0_pos_offset = props.index("pos_perm_y0")
-        y1_mof_offset = props.index("mof_y1")
-        num_seq = y1_mof_offset - y0_pos_offset + 1
+        num_seq = len(props) - y0_pos_offset
 
         for seq_id, seq_lines in self.sequences.items():
             row["sequence_num"] = seq_id
-
-            spans = self.spans
-
-            exp = [spans.extract_text(line, 0) for line in seq_lines]
-            exp = fix_explanation_lines(exp)
-            exp = "\n".join(exp)
-            row["explanation"] = exp
+            row["explanation"] = self.get_seq_block_explanation(seq_lines)
 
             for line in seq_lines:
-                parts = spans.extract_text(line)
+                parts = self.spans.extract_text(line)
 
                 for i in range(num_seq):
-                    pid = props[i + y0_pos_offset]
-                    row[pid] = parts[i+1]
-                    row[pid] = fix_financial_number(row[pid])
+                    numtxt = parts[i+1]
+                    numtxt = numtxt.strip()
+                    numtxt = numtxt.replace(",", "")
+                    row[props[i + y0_pos_offset]] = numtxt
 
                 rowdata = [row[prop] for prop in props]
-
-                lastrow = [] if not rows else rows[-1]
-
-                if lastrow == rowdata:
-                    continue
-
-                if rowdata[:y0_pos_offset] == lastrow[:y0_pos_offset]:
-                    rstr = "".join([str(e) for e in rowdata[y0_pos_offset:]])
-                    if not rstr:
-                        continue
-
-                    lstr = "".join([str(e) for e in lastrow[y0_pos_offset:]])
-                    if not lstr:
-                        rows[-1] = rowdata
-                        continue
-
                 rows.append(rowdata)
 
+        rows = self.filter_duplicate_rows(rows, y0_pos_offset)
 
         return rows
 
