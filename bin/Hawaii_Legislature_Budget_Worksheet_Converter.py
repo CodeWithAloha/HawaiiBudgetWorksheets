@@ -3,7 +3,7 @@ __author__ = "McKay H Davis"
 __date__ = "2016-03-20Z20:08"
 __copyright__ = "Copyright 2016"
 __license__ = "GPLv3"
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 __maintainer__ = "McKay Davis"
 __email__ = "mckay@codeforhawaii.org"
 __doc__ = """
@@ -15,25 +15,6 @@ PDFTOTEXT_FIXED_PARAM = 4
 
 COL_END_SEQUENCE_NUM = 19
 COL_BEG_EXPLANATION_NUM = 21
-COL_END_EXPLANATION_PROGRAM = 62
-COL_END_EXPLANATION_DEPT_SUMMARY = 46
-
-COL_BEG_FY0_POS = 5
-COL_END_FY0_POS = 16
-
-COL_BEG_FY0_AMT = 18
-COL_END_FY0_AMT = 33
-
-COL_BEG_FY0_MOF = 35
-COL_END_FY0_MOF = 35
-
-COL_BEG_FY1_POS = 44
-COL_END_FY1_POS = 55
-
-COL_BEG_FY1_AMT = 57
-COL_END_FY1_AMT = 72
-COL_BEG_FY1_MOF = 73
-COL_END_FY1_MOF = 76
 
 SPECIAL_EXPLANATIONS = ["BASE APPROPRIATIONS",
                         "TOTAL BUDGET CHANGES",
@@ -114,15 +95,8 @@ import Spans
 
 
 def err(txt):
-    return
     sys.stderr.write(">>> {}".format(txt))
     sys.stderr.write("\n");
-
-
-def err2(txt):
-    sys.stderr.write(">>> {}".format(txt))
-    sys.stderr.write("\n");
-
 
 def err_col(line):
     err("".join("{}".format((i//10)%10) for i in range(0,len (line))))
@@ -131,60 +105,59 @@ def err_col(line):
 
 
 def main():
-    f = open(sys.argv[1] + ".csv", "wt")
-    pdf_to_csv(sys.argv[1], f)
+    csv_text = pdf_to_csv(sys.argv[1])
+
+    with open(sys.argv[1] + ".csv", "wt") as f:
+        f.write(csv_text)
+
     return 0
 
 
-def emit_row(outfile, row, delimiter = "\t"):
+def row_cells_to_csv(row, delimiter = "\t"):
     rowtxt = ["" if entry is None else entry for entry in row]
     rowtxt = ['"{}"'.format(ent) for ent in rowtxt]
     rowtxt = delimiter.join(rowtxt)
-    outfile.write(rowtxt)
-    outfile.write("\n")
+    return rowtxt
 
 
-
-def pdf_to_csv(pdf_filename, outfile):
+def get_pdf_textpages(pdf_filename):
     text = pdftotext(pdf_filename)
     # split pages at pagebreak char
     textpages = text.split("\x0c")
-    # remove last page, which is empty
+
+    # remove last page, which texttopdf creates as an empty page
     textpages = textpages[:-1]
-    # create a HBWSPage instance for each page
+
+    return textpages
+
+
+def pdf_to_csv(pdf_filename):
+    document_csv_rows = []
+
+    # CSV header
+    document_csv_rows += [row_cells_to_csv(HBWSPage.get_spreadsheet_header())]
+
+    textpages = get_pdf_textpages(pdf_filename)
 
     badpages = []
-    emit_row(outfile, HBWSPage.get_spreadsheet_header())
+
     for pagenum, pagetext in enumerate(textpages):
+        # 1-based indexing for pagenum
         pagenum += 1
-        err2("parsing {}".format(pagenum))
+
+        err("parsing {}".format(pagenum))
         try:
             page = HBWSPage(pagetext)
             rows = page.get_spreadsheet_rows()
-            for row in rows:
-                emit_row(outfile, row)
+            page_csv_rows = [row_cells_to_csv(row) for row in rows]
+            document_csv_rows += page_csv_rows
         except:
             badpages.append(pagenum)
-            err2("badpage = {}".format(pagenum))
+            err("badpage = {}".format(pagenum))
 
-    err2("badpages = {}".format(badpages))
+    err("badpages (#{}) = {}".format(len(badpages), badpages))
 
-        #pages.append(page)
-
-        #[) for page in pages]
-
-    #return get_spreadsheet(pages, ",")
-
-def get_spreadsheet(pages, delimiter="\t"):
-    text = []
-    header = True
-    for page in pages:
-        for row in page.get_spreadsheet_rows(header):
-            header = False
-            row = ["" if ent is None else ent for ent in row]
-            row = ['"{}"'.format(ent) for ent in row]
-            text.append(delimiter.join(row))
-    return "\n".join(text)
+    return "\n".join(document_csv_rows)
 
 
 def delchar_at_pos(txt, atpos):
@@ -206,6 +179,8 @@ class HBWSPage:
     def __init__(self, text):
         global PROGRAM_SEQUENCES_SPANS, DEPARTMENT_SEQUENCES_SPANS
 
+        # These lines of exactly 84 asterisks mess up parsing
+        # by bleeding into the first FY perm, replace them w/ 25 asterisks
         text = text.replace("*************************************************************************************",
                      "*" * 25)
 
@@ -220,8 +195,8 @@ class HBWSPage:
         self.eat_empty_lines()
 
         self.parse_department_or_program_id(self.getline())
-        self.eat_empty_lines()
 
+        self.eat_empty_lines()
 
         if self.program_page:
             # Parse Program Page
@@ -235,14 +210,6 @@ class HBWSPage:
 
             # parse sequences step 1
             sequences = self.parse_sequences_step1(162)
-            if self.pagenum == 192:
-                return
-                key = list(sequences.keys())[0]
-                err("KEY="+key)
-                err("KEY={}".format(sequences[key]))
-                sequences[key][0] = inschar_at_pos(sequences[key][0], " ", 85)
-
-
             spans = self.parse_sequences_spans(sequences)
 
             if not len(PROGRAM_SEQUENCES_SPANS.ss):
@@ -250,8 +217,11 @@ class HBWSPage:
             else:
                 new_ss = PROGRAM_SEQUENCES_SPANS.union(spans)
 
-                if len(new_ss.ss) != len(PROGRAM_SEQUENCES_SPANS.ss):
-                    err2("\n{}: {}\n{}: {}\n\n{}: {}".format
+                if len(new_ss.ss) == len(PROGRAM_SEQUENCES_SPANS.ss):
+                    PROGRAM_SEQUENCES_SPANS = new_ss
+                    spans = new_ss
+                elif len(spans.ss) != 9:
+                    err("\n{}: {}\n{}: {}\n\n{}: {}".format
                         (len(spans.ss), spans.ss,
                          len(PROGRAM_SEQUENCES_SPANS.ss), PROGRAM_SEQUENCES_SPANS.ss,
                          len(new_ss.ss), new_ss.ss
@@ -259,14 +229,6 @@ class HBWSPage:
                     self.print_sequences_spans(sequences, spans)
                     self.print_sequences_spans(sequences, new_ss)
                     assert 0
-                PROGRAM_SEQUENCES_SPANS = new_ss
-                spans = PROGRAM_SEQUENCES_SPANS
-
-            self.print_sequences_spans(sequences, PROGRAM_SEQUENCES_SPANS)
-
-
-            # parse sequences step 2
-            #self.parse_sequences_step2(sequences, COL_END_EXPLANATION_PROGRAM)
         else:
             assert self.department_summary_page
 
@@ -287,31 +249,30 @@ class HBWSPage:
                 DEPARTMENT_SEQUENCES_SPANS = spans
             else:
                 new_ss = DEPARTMENT_SEQUENCES_SPANS.union(spans)
-                if len(new_ss.ss) != len(DEPARTMENT_SEQUENCES_SPANS.ss):
-                    err("\n{}: {}\n{}: {}\n\n{}: {}".format(len(new_ss.ss), new_ss.ss, len(DEPARTMENT_SEQUENCES_SPANS.ss), DEPARTMENT_SEQUENCES_SPANS.ss, len(spans.ss), spans.ss))
+                if len(new_ss.ss) == len(DEPARTMENT_SEQUENCES_SPANS.ss):
+                    DEPARTMENT_SEQUENCES_SPANS = new_ss
+                    spans = new_ss
+                elif len(spans.ss) != 9:
+                    err("\n{}: {}\n{}: {}\n\n{}: {}".format
+                        (len(new_ss.ss), new_ss.ss,
+                         len(DEPARTMENT_SEQUENCES_SPANS.ss),DEPARTMENT_SEQUENCES_SPANS.ss,
+                         len(spans.ss), spans.ss))
                     self.print_sequences_spans(sequences, spans)
                     assert 0
-                DEPARTMENT_SEQUENCES_SPANS = new_ss
-
-            spans = DEPARTMENT_SEQUENCES_SPANS
-
-            self.print_sequences_spans(sequences, DEPARTMENT_SEQUENCES_SPANS)
-            #self.parse_sequences_step2(sequences, COL_END_EXPLANATION_DEPT_SUMMARY)
 
         self.sequences = sequences
         self.spans = spans
 
-        #print(self.debug_str()+"\n")
-        err("PROGRAM_SEQUENCES_SPANS")
-        err(PROGRAM_SEQUENCES_SPANS.ss)
-
 
     def eat_empty_lines(self):
-        while self.curline < len(self.lines) and self.lines[self.curline] == [""]: self.curline += 1
+        while self.curline < len(self.lines) and self.lines[self.curline] == [""]:
+            self.curline += 1
+
 
     def getline(self):
         self.curline += 1
         return self.lines[self.curline-1]
+
 
     def parse_sequences_step1(self, special_col = 0):
         special_explanations = SPECIAL_EXPLANATIONS
@@ -357,16 +318,18 @@ class HBWSPage:
         spans = Spans.Spans()
         for seq, seq_lines in sequences.items():
             for i, seq_line in enumerate(seq_lines):
-                err("-"*120)
-                err("seq_line {}".format(i))
-                err_col(seq_line)
                 line_spans = Spans.Spans.from_text(seq_line)
-                err(line_spans.ss)
-                err(line_spans.extract_text(seq_line))
                 spans = spans.union(line_spans)
-                err(spans.extract_text(seq_line))
-                err(spans.ss)
-                err("-"*120)
+
+                if debug:
+                    err("-"*120)
+                    err("seq_line {}".format(i))
+                    err_col(seq_line)
+                    err(line_spans.ss)
+                    err(line_spans.extract_text(seq_line))
+                    err(spans.extract_text(seq_line))
+                    err(spans.ss)
+                    err("-"*120)
 
         return spans
 
@@ -375,62 +338,7 @@ class HBWSPage:
         for seq, seq_lines in sequences.items():
             for seq_line in seq_lines:
                 parts = spans.extract_text(seq_line)
-                #sys.stderr.write("\nseq: {:20s} ---> {}\n".format(seq, parts))
-
-
-    def parse_sequences_with_spans(self, sequences, spans):
-        self.explanations = {}
-        self.line_items = {}
-        self.seq_ids = []
-
-        for seq_id, seq_lines in sequences.items():
-
-            explanation, line_item = self.parse_sequence(seq_id, seq_lines, col_end_explanation)
-            if explanation or line_item:
-                self.explanations[seq_id] = explanation
-                self.line_items[seq_id] = line_item
-                self.seq_ids.append(seq_id)
-
-
-
-    def parse_sequences_step2(self, sequences, col_end_explanation):
-        self.explanations = {}
-        self.line_items = {}
-        self.seq_ids = []
-
-        for seq_id, seq_lines in sequences.items():
-            explanation, line_item = self.parse_sequence(seq_id, seq_lines, col_end_explanation)
-            if explanation or line_item:
-                self.explanations[seq_id] = explanation
-                self.line_items[seq_id] = line_item
-                self.seq_ids.append(seq_id)
-
-
-
-    def parse_sequence(self, seq_id, lines, col_end_explanation):
-        explanations = []
-        line_items = []
-        for line in lines:
-
-            explanation = line[:col_end_explanation]
-            #print("EXPLANATION FROM:'{}' TO '{}'".format(line, explanation))
-            explanation = explanation.rstrip()
-            if explanation.lstrip().startswith(seq_id): explanation = explanation.lstrip();
-            if explanation: explanations.append(explanation)
-
-            line = line[col_end_explanation:]
-            err("parse sequence line:")
-            err_col(line)
-
-            line_item = self.parse_line_item(line)
-            line_items.append(line_item)
-            err(line_item)
-
-        while len(line_items) > 1 and not "".join(line_items[-1]) and not "".join(line_items[-2]): line_items = line_items[:-1]
-        while len(line_items) > 1 and not "".join(line_items[-1]): line_items = line_items[:-1]
-
-        return (explanations, line_items)
-
+                err("\nseq: {:20s} ---> {}\n".format(seq, parts))
 
     def parse_timestamp(self, line):
         # insert leading 0 for hour in time
@@ -460,9 +368,13 @@ class HBWSPage:
         self.detail_type = line[1].split()[-1]
 
     def parse_department_or_program_id(self, line):
+        # There are two types of pages in the Budget Worksheets:
+        #   Department and Program
+        # Determine which this is
         self.department_summary_page = line[1] == "Department:"
         self.program_page = "Program ID" in line[1]
 
+        # Assert that this is either a department or program page
         assert self.program_page or self.department_summary_page
 
         if ((self.program_page and len(line) > 2 and len(line[2]) > 3) or
@@ -473,8 +385,6 @@ class HBWSPage:
         if self.program_page:
             self.program_id = int(line[2][3:])
             self.program_name = line[3]
-
-
 
 
     def parse_structure_number(self, line):
@@ -575,15 +485,10 @@ class HBWSPage:
 
             for line in seq_lines:
                 parts = spans.extract_text(line)
-                #err2(line)
-                #err2(parts)
-
 
                 for i in range(num_seq):
                     pid = props[i + y0_pos_offset]
                     row[pid] = parts[i+1]
-                    #print("{} = {}".format(pid, row[pid]))
-
                     row[pid] = fix_financial_number(row[pid])
 
                 rowdata = [row[prop] for prop in props]
@@ -594,9 +499,6 @@ class HBWSPage:
                     continue
 
                 if rowdata[:y0_pos_offset] == lastrow[:y0_pos_offset]:
-                    #err2(rowdata[:y0_pos_offset])
-                    #err2(lastrow[:y0_pos_offset])
-
                     rstr = "".join([str(e) for e in rowdata[y0_pos_offset:]])
                     if not rstr:
                         continue
@@ -616,7 +518,7 @@ class HBWSPage:
 def pdftotext(pdf_filename):
     cmd = ["pdftotext",
            "-layout",
-           "-fixed 4",
+           "-fixed {}".format(PDFTOTEXT_FIXED_PARAM),
            '"'+pdf_filename+'"',
            "-"]
     buf = subprocess.check_output(" ".join(cmd), shell=True)
