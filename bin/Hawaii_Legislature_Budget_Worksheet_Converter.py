@@ -98,10 +98,11 @@ def err(txt):
     sys.stderr.write(">>> {}".format(txt))
     sys.stderr.write("\n");
 
-def err_col(line):
-    err("".join("{}".format((i//10)%10) for i in range(0,len (line))))
-    err("".join("{}".format(i%10) for i in range(0,len (line))))
-    err(line)
+def err_col(line, linenum = None):
+    prefix = "" if linenum is None else "[{:3d}] ".format(linenum)
+    err(prefix+ "".join("{}".format((i//10)%10) for i in range(0,len (line))))
+    err(prefix+"".join("{}".format(i%10) for i in range(0,len (line))))
+    err(prefix+line)
 
 
 def main():
@@ -122,6 +123,7 @@ def row_cells_to_csv(row, delimiter = "\t"):
 
 def get_pdf_textpages(pdf_filename):
     text = pdftotext(pdf_filename)
+
     # split pages at pagebreak char
     textpages = text.split("\x0c")
 
@@ -139,6 +141,8 @@ def pdf_to_csv(pdf_filename):
 
     textpages = get_pdf_textpages(pdf_filename)
 
+    datetimestr = pdf_creation_datetime(pdf_filename)
+
     badpages = []
 
     for pagenum, pagetext in enumerate(textpages):
@@ -146,7 +150,7 @@ def pdf_to_csv(pdf_filename):
         pagenum += 1
 
         try:
-            page = HBWSPage(pagetext)
+            page = HBWSPage(pagetext, datetimestr)
             rows = page.get_spreadsheet_rows()
             page_csv_rows = [row_cells_to_csv(row) for row in rows]
             document_csv_rows += page_csv_rows
@@ -174,8 +178,10 @@ DEPARTMENT_SEQUENCES_SPANS = Spans.Spans()
 
 class HBWSPage:
     """Hawaii Budget Worksheet Page"""
-    def __init__(self, text):
+    def __init__(self, text, datetimestr):
         global PROGRAM_SEQUENCES_SPANS, DEPARTMENT_SEQUENCES_SPANS
+
+        self.pdf_creation_datetimestr = datetimestr
 
         # These lines of exactly 84 asterisks mess up parsing
         # by bleeding into the first FY perm, replace them w/ 25 asterisks
@@ -189,7 +195,13 @@ class HBWSPage:
         self.lines = [re.split(" \s+", line) for line in self.text]
         self.curline = 0
 
-        self.parse_page_header_line0(self.getline())
+        line = self.getline()
+
+        hd1_2017 = datetimestr == "Wed Mar 15 14:45:43 2017"
+        if hd1_2017:
+            line = ["", "Wednesday, March 15, 2017", "14:45:43 AM"] + line[1:]
+
+        self.parse_page_header_line0(line)
         self.parse_page_header_line1(self.getline())
         self.eat_empty_lines()
 
@@ -197,6 +209,7 @@ class HBWSPage:
         self.eat_empty_lines()
 
         self.fix_2017_exec_sheet_bugs()
+        self.fix_2017_hd_sheet_bugs()
 
         if self.program_page:
             # Parse Program Page
@@ -238,14 +251,31 @@ class HBWSPage:
             if len(new_ss.ss) == len(global_spans.ss):
                 global_spans = new_ss
                 spans = new_ss
-            elif len(spans.ss) != 9:
-                err("\n{}: {}\n{}: {}\n\n{}: {}".format
-                    (len(spans.ss), spans.ss,
-                     len(global_spans.ss), global_spans.ss,
-                     len(new_ss.ss), new_ss.ss
-                    ))
+
+            if len(spans.ss) != 9:
+            #or self.pagenum in [285, 704, 766, 780, 221]:
+                #err("\n{}: {}\n{}: {}\n\n{}: {}".format
+                #    (len(spans.ss), spans.ss,
+                #     len(global_spans.ss), global_spans.ss,
+                #     len(new_ss.ss), new_ss.ss
+                #    ))
+
+                err("")
+                err("pagenum={}".format(self.pagenum))
+                err("spans[{}] = {}".format(len(spans.ss), spans.ss))
                 self.print_sequences_spans(self.sequences, spans)
+
+                err("")
+                err("global_spans[{}] = {}".format(len(global_spans.ss), global_spans.ss))
+                self.print_sequences_spans(self.sequences, global_spans)
+
+                err("")
+                err("new_ss[{}] = {}".format(len(new_ss.ss), new_ss.ss))
                 self.print_sequences_spans(self.sequences, new_ss)
+
+                for i, line in enumerate(self.text):
+                    err_col(line, i)
+                input()
                 assert 0
 
         if self.program_page:
@@ -279,6 +309,23 @@ class HBWSPage:
             self.text[30] = inschar_at_pos(self.text[30], " ", -1)
             self.text[20] = self.text[20].replace("GRAND TOTAL      APPROPRIATIONS",
                                                   "     GRAND TOTAL APPROPRIATIONS");
+
+
+
+    def fix_2017_hd_sheet_bugs(self):
+        if not (self.datetime.year == 2017 and
+                self.datetime.month == 3 and
+                self.datetime.day == 15):
+            return
+
+        if self.pagenum == 1093:
+            self.text = [line.replace("GRAND TOTAL      APPROPRIATIONS", "     GRAND TOTAL APPROPRIATIONS") for line in self.text]
+
+        if self.pagenum in [285, 704, 766, 780, 221]:
+            self.text = [line.replace(" (", "(").replace(") ", ")  ") for line in self.text]
+
+        #self.text = [re.sub("  \(([0-9,\.]+)\) ([A-Z])", r" (\1)  \2", line) for line in self.text]
+
 
 
 
@@ -361,7 +408,7 @@ class HBWSPage:
         for seq, seq_lines in sequences.items():
             for seq_line in seq_lines:
                 parts = spans.extract_text(seq_line)
-                err("seq: {:20s} ---> {}".format(seq, parts))
+                err("seq: {:30s} ---> {}".format(seq, parts))
 
     def parse_timestamp(self, line):
         # insert leading 0 for hour in time
@@ -556,6 +603,18 @@ def pdftotext(pdf_filename):
     buf = subprocess.check_output(" ".join(cmd), shell=True)
     text = buf.decode("utf-8")
     return text
+
+
+def pdf_creation_datetime(pdf_filename):
+    cmd = ["pdfinfo",
+           "-meta",
+           '"'+pdf_filename+'"']
+    buf = subprocess.check_output(" ".join(cmd), shell=True)
+    text = buf.decode("utf-8")
+    cdate = [line for line in text.split("\n") if line.startswith("CreationDate:")]
+    datetimestr = "" if not cdate else cdate[0].split("CreationDate:")[-1].strip()
+
+    return datetimestr
 
 
 if __name__ == "__main__":
