@@ -201,6 +201,11 @@ class HBWSPage:
         if hd1_2017:
             line = ["", "Wednesday, March 15, 2017", "14:45:43 AM"] + line[1:]
 
+        sd1_2017 = datetimestr == "Tue Apr  4 04:26:42 2017"
+        if sd1_2017:
+            line = ["", "Tuesday, April 4, 2017", "04:26:42 AM"] + line[1:]
+
+
         self.parse_page_header_line0(line)
         self.parse_page_header_line1(self.getline())
         self.eat_empty_lines()
@@ -210,6 +215,7 @@ class HBWSPage:
 
         self.fix_2017_exec_sheet_bugs()
         self.fix_2017_hd_sheet_bugs()
+        self.fix_2017_sd_sheet_bugs()
 
         if self.program_page:
             # Parse Program Page
@@ -327,6 +333,15 @@ class HBWSPage:
         #self.text = [re.sub("  \(([0-9,\.]+)\) ([A-Z])", r" (\1)  \2", line) for line in self.text]
 
 
+    def fix_2017_sd_sheet_bugs(self):
+        if not (self.datetime.year == 2017 and
+                self.datetime.month == 4 and
+                self.datetime.day == 4):
+            return
+
+
+        if self.pagenum in [657]:
+            self.text = [line.replace(" (", "(").replace(")", ") ") for line in self.text]
 
 
     def eat_empty_lines(self):
